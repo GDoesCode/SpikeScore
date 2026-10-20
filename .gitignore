@@ -426,3 +426,23 @@ FodyWeavers.xsd
 
 # Official VS Code C# Dev Kit Extension exclusion
 #*.lscache
+
+# Secrets and local config
+appsettings.Development.json
+appsettings.Local.json
+.env
+*.user
+
+# Local databases
+*.db
+*.sqlite
+
+# Real match data and generated output (personal data)
+/data/
+/exports/
+*.pdf
+scoresheets/
+
+# Rider / VS Code
+.idea/
+.vscode/
