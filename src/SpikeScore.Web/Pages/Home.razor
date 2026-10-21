@@ -1,0 +1,210 @@
+﻿@page "/"
+@using SpikeScore.Web.Services
+@inject MatchEngine engine
+
+<!-- Top Center: Current Server Indicator -->
+<div class="server-indicator">
+    Server: <span class="server-number">#11</span>
+</div>
+
+<div class="scoresheet-container">
+    <!-- Left Team (Home) -->
+    <div class="team-side home-side" @onclick='() => engine.ScorePoint("Home")'>
+        <div class="team-info">
+            <h2>HOME</h2>
+            <span class="score">@engine.HomeScore</span>
+            <div class="stat-pills">
+                <span class="stat-pill">TO: @engine.HomeTimeOuts/2</span>
+                <span class="stat-pill">Subs: @engine.HomeSubCount/6</span>
+            </div>
+        </div>
+        <div class="tap-hint">Tap to score</div>
+    </div>
+
+    <!-- Right Team (Away) -->
+    <div class="team-side away-side" @onclick='() => engine.ScorePoint("Away")'>
+        <div class="team-info">
+            <h2>AWAY</h2>
+            <span class="score">@engine.AwayScore</span>
+            <div class="stat-pills">
+                <span class="stat-pill">TO: @engine.AwayTimeOuts/2</span>
+                <span class="stat-pill">Subs: @engine.AwaySubCount/6</span>
+            </div>
+        </div>
+        <div class="tap-hint">Tap to score</div>
+    </div>
+
+    <!-- Action Bar -->
+    <div class="action-group home-actions">
+        <button type="button" class="action-btn" @onclick='() => engine.OpenTeamModal("Timeout")' @onclick:stopPropagation="true">Time-Out</button>
+    </div>
+
+    <div class="action-group center-actions">
+        <button type="button" class="action-btn" @onclick="engine.Undo" @onclick:stopPropagation="true" disabled="@(!engine.CanUndo)">Undo</button>
+    </div>
+
+    <div class="action-group away-actions">
+        <button type="button" class="action-btn" @onclick='() => engine.OpenTeamModal("Sub")' @onclick:stopPropagation="true">Sub</button>
+    </div>
+</div>
+
+<!-- Inline Team Selection Modal -->
+@if (engine.IsTeamModalOpen)
+{
+    <div class="modal-backdrop" @onclick="engine.CloseModals">
+        <div class="modal-card" @onclick:stopPropagation="true">
+            <h3 class="modal-title">Select Team for @engine.ActiveAction</h3>
+            <p class="modal-subtitle">Which team is taking the @engine.ActiveAction.ToLower()?</p>
+
+            <div class="modal-team-buttons">
+                <button type="button" class="modal-team-btn modal-home-btn" @onclick='() => engine.ConfirmTeam("Home")'><span>HOME</span></button>
+                <button type="button" class="modal-team-btn modal-away-btn" @onclick='() => engine.ConfirmTeam("Away")'><span>AWAY</span></button>
+            </div>
+
+            <button type="button" class="modal-cancel-btn" @onclick="engine.CloseModals">Cancel</button>
+        </div>
+    </div>
+}
+
+<!-- Inline Substitution Flow Modal -->
+@if (engine.IsSubModalOpen)
+{
+    <div class="modal-backdrop" @onclick="engine.CloseModals">
+        <div class="modal-card" @onclick:stopPropagation="true">
+            @if (engine.SubStep == 1)
+            {
+                <h3 class="modal-title">Substitution (@engine.ActiveTeam)</h3>
+                <p class="modal-subtitle">Select player coming <strong>OFF</strong> (on court):</p>
+
+                <div class="player-grid">
+                    @foreach (var playerNum in engine.GetOnCourtPlayers(engine.ActiveTeam))
+                    {
+                        <button type="button" class="player-btn off-player" @onclick='() => engine.SelectPlayerOff(playerNum)'>#@playerNum</button>
+                    }
+                </div>
+            }
+            else if (engine.SubStep == 2)
+            {
+                <h3 class="modal-title">Substitution (@engine.ActiveTeam)</h3>
+                <p class="modal-subtitle">Player OFF: <strong>#@engine.SelectedPlayerOff</strong><br/>Select player coming <strong>ON</strong>:</p>
+
+                <div class="player-grid">
+                    @foreach (var playerNum in engine.GetBenchPlayers(engine.ActiveTeam, engine.SelectedPlayerOff))
+                    {
+                        <button type="button" class="player-btn on-player" @onclick='() => engine.SelectPlayerOn(playerNum)'>#@playerNum</button>
+                    }
+                </div>
+            }
+
+            <button type="button" class="modal-cancel-btn" style="margin-top: 16px;" @onclick="engine.CloseModals">Cancel</button>
+        </div>
+    </div>
+}
+
+<!-- Inline Error Modal -->
+@if (engine.IsErrorModalOpen)
+{
+    <div class="modal-backdrop" @onclick="engine.CloseErrorModal">
+        <div class="modal-card error-card" @onclick:stopPropagation="true">
+            <div class="error-icon">⚠️</div>
+            <h3 class="modal-title">Notice</h3>
+            <p class="modal-subtitle">@engine.ErrorMessage</p>
+            <button type="button" class="modal-cancel-btn error-ok-btn" @onclick="engine.CloseErrorModal">OK</button>
+        </div>
+    </div>
+}
+
+<style>
+    /* Viewport Lock & Base Styles */
+    html, body, .page, main {
+        height: 100% !important;
+        max-height: 100dvh !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: hidden !important;
+    }
+
+    .server-indicator {
+        position: fixed;
+        top: 16px; left: 50%;
+        transform: translateX(-50%);
+        background: #0f172a; color: #ffffff;
+        padding: 8px 18px; border-radius: 20px;
+        font-size: 1rem; font-weight: bold;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+        z-index: 9999; border: 1px solid #334155;
+        pointer-events: none;
+    }
+    .server-number { color: #38bdf8; }
+
+    .scoresheet-container {
+        display: flex; width: 100vw; height: 100dvh;
+        position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+        overflow: hidden; user-select: none; -webkit-user-select: none; box-sizing: border-box;
+    }
+
+    .team-side {
+        flex: 1; display: flex; flex-direction: column;
+        justify-content: center; align-items: center;
+        cursor: pointer; transition: filter 0.1s ease; padding-bottom: 60px;
+    }
+
+    .home-side { background-color: #2563eb; border-right: 2px solid #1e40af; }
+    .home-side:active { filter: brightness(0.85); }
+    .away-side { background-color: #dc2626; }
+    .away-side:active { filter: brightness(0.85); }
+
+    .team-info { text-align: center; color: white; }
+    .team-info h2 { margin: 0; font-size: clamp(1.2rem, 3vw, 2rem); letter-spacing: 1px; }
+    .score { font-size: clamp(4rem, 15vw, 8rem); font-weight: bold; line-height: 1; }
+    .stat-pills { margin-top: 6px; display: flex; gap: 6px; justify-content: center; }
+    .stat-pill { background: rgba(0, 0, 0, 0.25); padding: 4px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
+    .tap-hint { margin-top: 0.5rem; font-size: clamp(0.7rem, 2vw, 0.85rem); color: rgba(255, 255, 255, 0.8); text-transform: uppercase; letter-spacing: 1px; }
+
+    .action-group {
+        position: absolute; bottom: clamp(12px, 3dvh, 24px);
+        display: flex; gap: 6px; background: rgba(15, 23, 42, 0.85);
+        padding: 6px 10px; border-radius: 30px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        z-index: 100; backdrop-filter: blur(4px);
+    }
+    .home-actions { left: clamp(10px, 3vw, 24px); }
+    .center-actions { left: 50%; transform: translateX(-50%); }
+    .away-actions { right: clamp(10px, 3vw, 24px); }
+
+    .action-btn {
+        background: #334155; color: white; border: none;
+        padding: 8px 16px; border-radius: 20px; font-size: clamp(0.75rem, 2vw, 0.9rem);
+        font-weight: bold; cursor: pointer; touch-action: manipulation;
+    }
+    .action-btn:active { background: #1e293b; }
+    .action-btn:disabled { background: #475569; opacity: 0.5; cursor: not-allowed; }
+
+    /* Modal Backdrop & Card Styles */
+    .modal-backdrop {
+        position: fixed; top: 0; left: 0; width: 100vw; height: 100dvh;
+        background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(6px);
+        display: flex; justify-content: center; align-items: center; z-index: 10000;
+    }
+    .modal-card {
+        background: #0f172a; color: white; padding: 24px; border-radius: 20px;
+        width: 90%; max-width: 400px; text-align: center;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5); border: 1px solid #334155;
+    }
+    .modal-title { margin: 0 0 6px 0; font-size: 1.4rem; }
+    .modal-subtitle { margin: 0 0 20px 0; color: #94a3b8; font-size: 0.95rem; line-height: 1.4; }
+    .modal-team-buttons { display: flex; gap: 12px; height: 100px; margin-bottom: 16px; }
+    .modal-team-btn { flex: 1; border: none; border-radius: 12px; color: white; font-size: 1.3rem; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    .modal-home-btn { background: #2563eb; }
+    .modal-away-btn { background: #dc2626; }
+    .modal-cancel-btn { background: transparent; color: #94a3b8; border: 1px solid #334155; padding: 8px 20px; border-radius: 15px; font-weight: 600; cursor: pointer; }
+    
+    .player-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 10px; }
+    .player-btn { background: #1e293b; color: white; border: 1px solid #475569; padding: 16px 0; border-radius: 12px; font-size: 1.2rem; font-weight: bold; cursor: pointer; }
+    .player-btn:active { background: #334155; }
+    .off-player { border-color: #38bdf8; }
+    .on-player { border-color: #4ade80; }
+
+    .error-card { border-color: #ef4444; }
+    .error-icon { font-size: 2.5rem; margin-bottom: 8px; }
+    .error-ok-btn { background: #ef4444; color: white; border: none; width: 100%; padding: 12px; font-size: 1rem; }
+</style>

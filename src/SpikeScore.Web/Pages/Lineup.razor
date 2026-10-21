@@ -1,0 +1,146 @@
+@page "/lineup"
+@using SpikeScore.Web.Services
+@inject MatchEngine engine
+
+<div class="lineup-page-container">
+    <div class="header-bar">
+        <h1>LINE-UP SHEET (TESTING VIEW)</h1>
+        <a href="/" class="nav-back-btn">Back to Match Screen</a>
+    </div>
+
+    <div class="lineup-grid-container">
+        <!-- Home Team Line-up Sheet -->
+        <div class="lineup-card home-card">
+            <div class="card-header">
+                <h2>HOME TEAM</h2>
+                <div class="header-pills">
+                    <span>TO: @engine.HomeTimeOuts/2</span>
+                    <span>Subs: @engine.HomeSubCount/6</span>
+                </div>
+            </div>
+
+            <div class="volleyball-court-grid">
+                <div class="court-position pos-iv">
+                    <span class="pos-label">IV (Front Left)</span>
+                    <span class="player-num">#@GetPlayerAtPosition("Home", 3)</span>
+                </div>
+                <div class="court-position pos-iii">
+                    <span class="pos-label">III (Front Center)</span>
+                    <span class="player-num">#@GetPlayerAtPosition("Home", 2)</span>
+                </div>
+                <div class="court-position pos-ii">
+                    <span class="pos-label">II (Front Right)</span>
+                    <span class="player-num">#@GetPlayerAtPosition("Home", 1)</span>
+                </div>
+
+                <div class="court-position pos-v">
+                    <span class="pos-label">V (Back Left)</span>
+                    <span class="player-num">#@GetPlayerAtPosition("Home", 4)</span>
+                </div>
+                <div class="court-position pos-vi">
+                    <span class="pos-label">VI (Back Center)</span>
+                    <span class="player-num">#@GetPlayerAtPosition("Home", 5)</span>
+                </div>
+                <div class="court-position pos-i">
+                    <span class="pos-label">I (Back Right - Server)</span>
+                    <span class="player-num">#@GetPlayerAtPosition("Home", 0)</span>
+                </div>
+            </div>
+
+            <div class="bench-section">
+                <strong>Bench Players:</strong>
+                <div class="bench-list">
+                    @foreach (var player in engine.GetBenchPlayers("Home", 0))
+                    {
+                        <span class="bench-badge">#@player</span>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- Away Team Line-up Sheet -->
+        <div class="lineup-card away-card">
+            <div class="card-header">
+                <h2>AWAY TEAM</h2>
+                <div class="header-pills">
+                    <span>TO: @engine.AwayTimeOuts/2</span>
+                    <span>Subs: @engine.AwaySubCount/6</span>
+                </div>
+            </div>
+
+            <div class="volleyball-court-grid">
+                <div class="court-position pos-iv">
+                    <span class="pos-label">IV (Front Left)</span>
+                    <span class="player-num">#@GetPlayerAtPosition("Away", 3)</span>
+                </div>
+                <div class="court-position pos-iii">
+                    <span class="pos-label">III (Front Center)</span>
+                    <span class="player-num">#@GetPlayerAtPosition("Away", 2)</span>
+                </div>
+                <div class="court-position pos-ii">
+                    <span class="pos-label">II (Front Right)</span>
+                    <span class="player-num">#@GetPlayerAtPosition("Away", 1)</span>
+                </div>
+
+                <div class="court-position pos-v">
+                    <span class="pos-label">V (Back Left)</span>
+                    <span class="player-num">#@GetPlayerAtPosition("Away", 4)</span>
+                </div>
+                <div class="court-position pos-vi">
+                    <span class="pos-label">VI (Back Center)</span>
+                    <span class="player-num">#@GetPlayerAtPosition("Away", 5)</span>
+                </div>
+                <div class="court-position pos-i">
+                    <span class="pos-label">I (Back Right - Server)</span>
+                    <span class="player-num">#@GetPlayerAtPosition("Away", 0)</span>
+                </div>
+            </div>
+
+            <div class="bench-section">
+                <strong>Bench Players:</strong>
+                <div class="bench-list">
+                    @foreach (var player in engine.GetBenchPlayers("Away", 0))
+                    {
+                        <span class="bench-badge">#@player</span>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    /* Same styles as before */
+    .lineup-page-container { padding: 16px; background: #0f172a; color: white; min-height: 100vh; box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
+    .header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid #334155; }
+    .header-bar h1 { font-size: 1.2rem; margin: 0; }
+    .nav-back-btn { background: #38bdf8; color: #0f172a; padding: 8px 16px; border-radius: 20px; text-decoration: none; font-weight: bold; font-size: 0.9rem; }
+    .lineup-grid-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; }
+    .lineup-card { background: #1e293b; border-radius: 16px; padding: 16px; border: 2px solid #334155; }
+    .home-card { border-color: #2563eb; }
+    .away-card { border-color: #dc2626; }
+    .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .card-header h2 { margin: 0; font-size: 1.2rem; }
+    .header-pills span { background: rgba(255, 255, 255, 0.1); padding: 4px 8px; border-radius: 8px; font-size: 0.8rem; margin-left: 4px; }
+    .volleyball-court-grid { display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(2, 80px); gap: 8px; background: #0f172a; padding: 10px; border-radius: 12px; border: 1px solid #475569; }
+    .court-position { background: #334155; border: 1px solid #64748b; border-radius: 8px; display: flex; flex-direction: column; justify-content: center; align-items: center; }
+    .pos-label { font-size: 0.65rem; color: #94a3b8; text-transform: uppercase; margin-bottom: 4px; }
+    .player-num { font-size: 1.4rem; font-weight: bold; color: #38bdf8; }
+    .bench-section { margin-top: 14px; font-size: 0.85rem; }
+    .bench-list { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+    .bench-badge { background: #334155; padding: 4px 10px; border-radius: 12px; font-weight: bold; font-size: 0.9rem; }
+</style>
+
+@code {
+    protected override void OnInitialized()
+    {
+        // Force component to re-read state from singleton on load
+        StateHasChanged();
+    }
+
+    private int GetPlayerAtPosition(string team, int index)
+    {
+        var court = engine.GetOnCourtPlayers(team);
+        return index < court.Count ? court[index] : 0;
+    }
+}
