@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'models.dart';
 
+enum MatchMode { localLeague3Set, nationalLeague5Set }
+
 class MatchEvent {
   final String type; // "Point", "Timeout", "Sub", "NewSet"
   final String team; // "Home", "Away"
@@ -14,9 +16,12 @@ class MatchEvent {
 class MatchEngine extends ChangeNotifier {
   late SharedPreferences _prefs;
 
+  MatchMode matchMode = MatchMode.localLeague3Set;
   int currentSet = 1;
   int _homeScore = 0;
   int _awayScore = 0;
+  int _homeSetsWon = 0;
+  int _awaySetsWon = 0;
   int _homeTimeOuts = 0;
   int _awayTimeOuts = 0;
   int _homeSubCount = 0;
@@ -26,6 +31,8 @@ class MatchEngine extends ChangeNotifier {
 
   int get homeScore => _homeScore;
   int get awayScore => _awayScore;
+  int get homeSetsWon => _homeSetsWon;
+  int get awaySetsWon => _awaySetsWon;
   int get homeTimeOuts => _homeTimeOuts;
   int get awayTimeOuts => _awayTimeOuts;
   int get homeSubCount => _homeSubCount;
@@ -37,13 +44,11 @@ class MatchEngine extends ChangeNotifier {
   List<int> homeOnCourt = [];
   List<int> awayOnCourt = [];
 
-  // Maps paired players bi-directionally: Player A <-> Player B
   final Map<String, Map<int, int>> _subPairs = {
     "Home": {},
     "Away": {},
   };
 
-  // Tracks how many times a position pair has been subbed in current set (Max 2 per set)
   final Map<String, Map<int, int>> _pairSubCounts = {
     "Home": {},
     "Away": {},
@@ -118,12 +123,59 @@ class MatchEngine extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setMatchMode(MatchMode mode) {
+    matchMode = mode;
+    notifyListeners();
+  }
+
+  bool get isDecidingSet {
+    int maxSets = matchMode == MatchMode.localLeague3Set ? 3 : 5;
+    return currentSet == maxSets;
+  }
+
+  int get targetPoints {
+    return isDecidingSet ? 15 : 25;
+  }
+
+  bool get isSetComplete {
+    int target = targetPoints;
+    return (_homeScore >= target || _awayScore >= target) && (_homeScore - _awayScore).abs() >= 2;
+  }
+
+  String? get winningTeam {
+    if (!isSetComplete) return null;
+    return _homeScore > _awayScore ? "Home" : "Away";
+  }
+
+  /// Required set wins to win the match (2 wins for 3-set, 3 wins for 5-set)
+  int get requiredSetsToWin {
+    return matchMode == MatchMode.localLeague3Set ? 2 : 3;
+  }
+
+  /// Total sets played so far in this match
+  bool get isMatchComplete {
+    if (!isSetComplete) {
+      // Check if earlier sets already clinched the match
+      return homeSetsWon >= requiredSetsToWin || awaySetsWon >= requiredSetsToWin;
+    }
+    
+    // Check if adding the current set's winner completes the match
+    int currentHomeWins = homeSetsWon + (winningTeam == "Home" ? 1 : 0);
+    int currentAwayWins = awaySetsWon + (winningTeam == "Away" ? 1 : 0);
+
+    return currentHomeWins >= requiredSetsToWin || currentAwayWins >= requiredSetsToWin;
+  }
+
   Future<void> scorePoint(String team) async {
+    // Prevent scoring if the set is already complete
+    if (isSetComplete) return;
+
     if (team == "Home") {
       _homeScore++;
     } else {
       _awayScore++;
     }
+
     _eventHistory.add(MatchEvent("Point", team));
     await _saveState();
     notifyListeners();
@@ -146,7 +198,6 @@ class MatchEngine extends ChangeNotifier {
   }
 
   // --- SUBSTITUTION LOGIC ---
-
   bool canTakeSub(String team) {
     int count = team == "Home" ? _homeSubCount : _awaySubCount;
     return count < 6;
@@ -191,7 +242,6 @@ class MatchEngine extends ChangeNotifier {
   Future<void> executeSubstitution(String team, int playerOffNum, int playerOnNum) async {
     List<int> onCourtNums = team == "Home" ? homeOnCourt : awayOnCourt;
 
-    // 1. Explicitly replace index in on-court roster to preserve court position
     int index = onCourtNums.indexOf(playerOffNum);
     if (index != -1) {
       onCourtNums[index] = playerOnNum;
@@ -200,25 +250,21 @@ class MatchEngine extends ChangeNotifier {
       onCourtNums.add(playerOnNum);
     }
 
-    // 2. Link sub pair bi-directionally
     _subPairs[team]![playerOffNum] = playerOnNum;
     _subPairs[team]![playerOnNum] = playerOffNum;
 
-    // 3. Get existing count for this pair and increment
     int existingCount = _pairSubCounts[team]![playerOffNum] ?? 0;
     int newPairSubs = existingCount + 1;
 
     _pairSubCounts[team]![playerOffNum] = newPairSubs;
     _pairSubCounts[team]![playerOnNum] = newPairSubs;
 
-    // 4. Increment team total subs
     if (team == "Home") {
       _homeSubCount++;
     } else {
       _awaySubCount++;
     }
 
-    // 5. Add to history, persist, and notify UI
     _eventHistory.add(MatchEvent("Sub", team, playerOff: playerOffNum, playerOn: playerOnNum));
     await _saveState();
     notifyListeners();
@@ -227,8 +273,16 @@ class MatchEngine extends ChangeNotifier {
   // --- SET & MATCH RESET LOGIC ---
 
   Future<void> startNewSet() async {
+    // Record set winner before clearing scores
+    if (winningTeam == "Home") {
+      _homeSetsWon++;
+    } else if (winningTeam == "Away") {
+      _awaySetsWon++;
+    }
+
     setHistory.add("Set $currentSet: Home $_homeScore - $_awayScore Away");
 
+    // Advance set counter and reset set metrics
     currentSet++;
     _homeScore = 0;
     _awayScore = 0;
@@ -258,6 +312,8 @@ class MatchEngine extends ChangeNotifier {
     _homeSubCount = 0;
     _awaySubCount = 0;
     currentSet = 1;
+    _homeSetsWon = 0;
+    _awaySetsWon = 0;
 
     setHistory.clear();
     _eventHistory.clear();
@@ -282,6 +338,19 @@ class MatchEngine extends ChangeNotifier {
     if (lastEvent.type == "Point") {
       if (lastEvent.team == "Home" && _homeScore > 0) _homeScore--;
       if (lastEvent.team == "Away" && _awayScore > 0) _awayScore--;
+    } else if (lastEvent.type == "NewSet") {
+      // Revert set transition
+      if (setHistory.isNotEmpty) {
+        setHistory.removeLast();
+      }
+      if (currentSet > 1) currentSet--;
+
+      // Adjust sets won counts
+      if (_homeSetsWon > 0 && _homeSetsWon > _awaySetsWon) {
+        _homeSetsWon--;
+      } else if (_awaySetsWon > 0 && _awaySetsWon > _homeSetsWon) {
+        _awaySetsWon--;
+      }
     } else if (lastEvent.type == "Timeout") {
       if (lastEvent.team == "Home" && _homeTimeOuts > 0) _homeTimeOuts--;
       if (lastEvent.team == "Away" && _awayTimeOuts > 0) _awayTimeOuts--;

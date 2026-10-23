@@ -50,11 +50,31 @@ class _MatchScreenState extends State<MatchScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
-        title: Text('SpikeScore — Set ${engine.currentSet}', style: const TextStyle(fontWeight: FontWeight.bold)),
+        title: Text('SpikeScore — Set ${engine.currentSet} (${engine.matchMode == MatchMode.localLeague3Set ? "3-Set" : "5-Set"})', style: const TextStyle(fontWeight: FontWeight.bold)),
         backgroundColor: const Color(0xFF1E1E1E),
         elevation: 0,
         actions: [
-          // RESET MATCH BUTTON
+          // MODE SWITCHER
+          PopupMenuButton<MatchMode>(
+            icon: const Icon(Icons.settings, color: Colors.white70),
+            tooltip: 'Match Format',
+            onSelected: (MatchMode mode) {
+              engine.setMatchMode(mode);
+            },
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: MatchMode.localLeague3Set,
+                child: Text('Local League (3 Sets, Set 3 to 15)'),
+              ),
+              PopupMenuItem(
+                value: MatchMode.nationalLeague5Set,
+                child: Text('National League (5 Sets, Set 5 to 15)'),
+              ),
+            ],
+          ),
+          const SizedBox(width: 4),
+
+          // RESET MATCH
           IconButton(
             onPressed: () => _showResetConfirmationModal(context),
             icon: const Icon(Icons.refresh, color: Colors.redAccent),
@@ -80,16 +100,25 @@ class _MatchScreenState extends State<MatchScreen> {
                 // HOME TEAM
                 Expanded(
                   child: GestureDetector(
-                    onTap: () {
-                      HapticFeedback.mediumImpact();
-                      engine.scorePoint("Home");
-                    },
+                    onTap: engine.isSetComplete
+                        ? null // Disables scoring when set is complete
+                        : () {
+                            HapticFeedback.mediumImpact();
+                            engine.scorePoint("Home");
+                            if (engine.isSetComplete) {
+                              _showSetCompletionModal(context);
+                            }
+                          },
                     child: Container(
-                      color: const Color(0xFF1E2229),
+                      color: (engine.isSetComplete && engine.winningTeam == "Home")
+                          ? Colors.green[800] // Green highlight when Home wins set
+                          : const Color(0xFF1E2229),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Text(engine.homeTeamSheet.teamName.toUpperCase(), style: const TextStyle(color: Colors.blueAccent, fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+                          const SizedBox(height: 10),
+                          Text('Sets Won: ${engine.homeSetsWon}', style: const TextStyle(color: Colors.white54, fontSize: 13)),
                           const SizedBox(height: 10),
                           Text('${engine.homeScore}', style: const TextStyle(color: Colors.white, fontSize: 70, fontWeight: FontWeight.bold)),
                           const SizedBox(height: 10),
@@ -114,16 +143,25 @@ class _MatchScreenState extends State<MatchScreen> {
                 // AWAY TEAM
                 Expanded(
                   child: GestureDetector(
-                    onTap: () {
-                      HapticFeedback.mediumImpact();
-                      engine.scorePoint("Away");
-                    },
+                    onTap: engine.isSetComplete
+                        ? null // Disables scoring when set is complete
+                        : () {
+                            HapticFeedback.mediumImpact();
+                            engine.scorePoint("Away");
+                            if (engine.isSetComplete) {
+                              _showSetCompletionModal(context);
+                            }
+                          },
                     child: Container(
-                      color: const Color(0xFF291E1E),
+                      color: (engine.isSetComplete && engine.winningTeam == "Away")
+                          ? Colors.green[800] // Green highlight when Away wins set
+                          : const Color(0xFF291E1E),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Text(engine.awayTeamSheet.teamName.toUpperCase(), style: const TextStyle(color: Colors.redAccent, fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+                          const SizedBox(height: 10),
+                          Text('Sets Won: ${engine.awaySetsWon}', style: const TextStyle(color: Colors.white54, fontSize: 13)),
                           const SizedBox(height: 10),
                           Text('${engine.awayScore}', style: const TextStyle(color: Colors.white, fontSize: 70, fontWeight: FontWeight.bold)),
                           const SizedBox(height: 10),
@@ -157,7 +195,7 @@ class _MatchScreenState extends State<MatchScreen> {
                   onPressed: engine.canUndo
                       ? () {
                           HapticFeedback.lightImpact();
-                          engine.undo();
+                          engine.undo(); // Undoing the winning point unlocks scoring again
                         }
                       : null,
                   icon: const Icon(Icons.undo),
@@ -181,6 +219,73 @@ class _MatchScreenState extends State<MatchScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  // --- SET / MATCH COMPLETE MODAL ---
+  void _showSetCompletionModal(BuildContext context) {
+    final engine = context.read<MatchEngine>();
+    bool matchDone = engine.isMatchComplete;
+
+    showModalBottomSheet(
+      context: context,
+      isDismissible: false,
+      enableDrag: false,
+      backgroundColor: const Color(0xFF222222),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (modalContext) {
+        return Container(
+          padding: const EdgeInsets.all(24),
+          height: 230,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                matchDone ? 'Match Complete! 🏆' : 'Set ${engine.currentSet} Complete!',
+                style: TextStyle(color: matchDone ? Colors.amberAccent : Colors.greenAccent, fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Winner of Set ${engine.currentSet}: ${engine.winningTeam} Team (${engine.homeScore} - ${engine.awayScore})',
+                style: const TextStyle(color: Colors.white, fontSize: 15),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                matchDone
+                    ? '${engine.winningTeam} Team wins the match ${engine.winningTeam == "Home" ? engine.homeSetsWon + 1 : engine.homeSetsWon} - ${engine.winningTeam == "Away" ? engine.awaySetsWon + 1 : engine.awaySetsWon}!'
+                    : 'Tap below to proceed to Set ${engine.currentSet + 1}.',
+                style: const TextStyle(color: Colors.white70, fontSize: 13),
+              ),
+              const Spacer(),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.grey[800]),
+                      onPressed: () => Navigator.pop(modalContext),
+                      child: Text(matchDone ? 'Close' : 'Review Score', style: const TextStyle(color: Colors.white)),
+                    ),
+                  ),
+                  if (!matchDone) ...[
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.green[800]),
+                        onPressed: () async {
+                          HapticFeedback.mediumImpact();
+                          Navigator.pop(modalContext);
+                          await engine.startNewSet();
+                        },
+                        child: Text('Start Set ${engine.currentSet + 1}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
