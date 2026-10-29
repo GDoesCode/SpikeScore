@@ -1,68 +1,221 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
 import 'models.dart';
 
 enum MatchMode { localLeague3Set, nationalLeague5Set }
 
+enum Team {
+  home,
+  away;
+
+  Team get other => this == Team.home ? Team.away : Team.home;
+  String get label => this == Team.home ? 'Home' : 'Away';
+}
+
+enum EventType { firstServe, point, timeout, sub, newSet }
+
+/// One thing that happened in the match. The event list is the single source
+/// of truth: everything else (score, sets, subs, lineups, who is serving) is
+/// derived from it.
 class MatchEvent {
-  final String type; // "Point", "Timeout", "Sub", "NewSet"
-  final String team; // "Home", "Away"
+  final EventType type;
+  final Team? team; // null for newSet
   final int? playerOff;
   final int? playerOn;
 
-  MatchEvent(this.type, this.team, {this.playerOff, this.playerOn});
+  const MatchEvent(this.type, {this.team, this.playerOff, this.playerOn});
+
+  Map<String, dynamic> toJson() => {
+        'type': type.name,
+        if (team != null) 'team': team!.name,
+        if (playerOff != null) 'off': playerOff,
+        if (playerOn != null) 'on': playerOn,
+      };
+
+  factory MatchEvent.fromJson(Map<String, dynamic> json) => MatchEvent(
+        EventType.values.byName(json['type'] as String),
+        team: json['team'] == null
+            ? null
+            : Team.values.byName(json['team'] as String),
+        playerOff: json['off'] as int?,
+        playerOn: json['on'] as int?,
+      );
+}
+
+/// One service round (a team's run of serving), as written on the scoresheet.
+///
+/// A round starts when a team gains the serve and ends when the opponent wins
+/// a rally (or the set ends). [startOwn] is the team's score when it gained
+/// the serve, including the point that gave it the serve. [endOwn] is its
+/// score when the round ended, so [pointsWon] counts only points won while
+/// serving. The opponent can't score during a round, so [opponentScore] is
+/// constant for its whole length.
+class ServiceRound {
+  static const romanNumerals = ['I', 'II', 'III', 'IV', 'V', 'VI'];
+
+  final int setNumber;
+  final Team team;
+
+  /// Service-order slot 1 to 6 (I to VI): whose turn it is, counting from the
+  /// first server of the set (I). The receiving team's first round is II.
+  final int position;
+
+  /// Jersey numbers who served in this round, in order. Normally one; more
+  /// if the server was substituted mid-round.
+  final List<int> servers;
+
+  final int startOwn;
+  final int endOwn;
+  final int opponentScore;
+
+  /// True while the round is in progress.
+  final bool isOpen;
+
+  const ServiceRound({
+    required this.setNumber,
+    required this.team,
+    required this.position,
+    required this.servers,
+    required this.startOwn,
+    required this.endOwn,
+    required this.opponentScore,
+    required this.isOpen,
+  });
+
+  int get pointsWon => endOwn - startOwn;
+  String get positionLabel => romanNumerals[position - 1];
+}
+
+/// Mutable version used while replaying events.
+class _Round {
+  final int setNumber;
+  final Team team;
+  final int position;
+  final List<int> servers;
+  final int startOwn;
+  final int opponentScore;
+  int endOwn;
+  bool open = true;
+
+  _Round({
+    required this.setNumber,
+    required this.team,
+    required this.position,
+    required int server,
+    required this.startOwn,
+    required this.opponentScore,
+  })  : servers = [server],
+        endOwn = startOwn;
+
+  ServiceRound toPublic() => ServiceRound(
+        setNumber: setNumber,
+        team: team,
+        position: position,
+        servers: List.unmodifiable(servers),
+        startOwn: startOwn,
+        endOwn: endOwn,
+        opponentScore: opponentScore,
+        isOpen: open,
+      );
+}
+
+/// One team's numbers for the current set, computed by replaying events.
+class _TeamState {
+  int score = 0;
+  int setsWon = 0;
+  int timeOuts = 0;
+  int subCount = 0;
+
+  /// How many times this team has rotated this set. Decides whose turn it is
+  /// in the service order (see [serviceSlot]).
+  int rotations = 0;
+
+  /// Jersey numbers in court-position order: index 0 is position I (the
+  /// server), then II, III, IV, V, VI.
+  List<int> onCourt;
+
+  /// player -> the player they swapped with (stored in both directions).
+  final Map<int, int> subPairs = {};
+
+  /// player -> how many swaps that starter/sub pair has made (shared by both).
+  final Map<int, int> pairSubCounts = {};
+
+  _TeamState(List<int> lineup) : onCourt = List.of(lineup);
+
+  void startSet(List<int> lineup) {
+    score = 0;
+    timeOuts = 0;
+    subCount = 0;
+    subPairs.clear();
+    pairSubCounts.clear();
+    rotations = 0;
+    onCourt = List.of(lineup);
+  }
+
+  /// Clockwise rotation: position II moves to I, I moves to VI.
+  void rotate() {
+    onCourt.add(onCourt.removeAt(0));
+    rotations++;
+  }
+
+  /// 0 to 5: which starter's turn it is in the service order. After k
+  /// rotations the server is the starter who began in position k + 1.
+  int get serviceSlot => rotations % 6;
+}
+
+class _Derived {
+  int currentSet = 1;
+
+  /// null until the first serve of the set has been chosen.
+  Team? servingTeam;
+
+  final Map<Team, _TeamState> teams;
+  final List<String> setHistory = [];
+
+  /// Every service round of the match, in order, across all sets.
+  final List<_Round> rounds = [];
+
+  /// The round in progress, or null between rounds (e.g. set over).
+  _Round? openRound;
+
+  _Derived(this.teams);
 }
 
 class MatchEngine extends ChangeNotifier {
-  late SharedPreferences _prefs;
+  static const _storageKey = 'spikescore_match_v3';
 
-  MatchMode matchMode = MatchMode.localLeague3Set;
-  int currentSet = 1;
-  int _homeScore = 0;
-  int _awayScore = 0;
-  int _homeSetsWon = 0;
-  int _awaySetsWon = 0;
-  int _homeTimeOuts = 0;
-  int _awayTimeOuts = 0;
-  int _homeSubCount = 0;
-  int _awaySubCount = 0;
-
-  final List<String> setHistory = [];
-
-  int get homeScore => _homeScore;
-  int get awayScore => _awayScore;
-  int get homeSetsWon => _homeSetsWon;
-  int get awaySetsWon => _awaySetsWon;
-  int get homeTimeOuts => _homeTimeOuts;
-  int get awayTimeOuts => _awayTimeOuts;
-  int get homeSubCount => _homeSubCount;
-  int get awaySubCount => _awaySubCount;
+  SharedPreferences? _prefs;
+  MatchMode _matchMode = MatchMode.localLeague3Set;
+  final List<MatchEvent> _events = [];
+  late _Derived _s;
 
   late TeamSheet homeTeamSheet;
   late TeamSheet awayTeamSheet;
 
-  List<int> homeOnCourt = [];
-  List<int> awayOnCourt = [];
-
-  final Map<String, Map<int, int>> _subPairs = {
-    "Home": {},
-    "Away": {},
-  };
-
-  final Map<String, Map<int, int>> _pairSubCounts = {
-    "Home": {},
-    "Away": {},
-  };
-
-  final List<MatchEvent> _eventHistory = [];
-  bool get canUndo => _eventHistory.isNotEmpty;
-
-  MatchEngine() {
+  /// Pass [prefs] to load synchronously (tests, or if you await
+  /// SharedPreferences.getInstance() in main). Without it the engine loads
+  /// in the background and is usable immediately.
+  MatchEngine({SharedPreferences? prefs}) {
+    _prefs = prefs;
     _initDefaultTeams();
-    _initStorage();
+    _s = _replay();
+    if (prefs != null) {
+      _restore(prefs);
+    } else {
+      _loadAsync();
+    }
   }
 
+  // ---------------------------------------------------------------------------
+  // Setup & persistence
+  // ---------------------------------------------------------------------------
+
   void _initDefaultTeams() {
+    // The order of startingLineup is the court order: position I (server)
+    // first, then II, III, IV, V, VI.
     homeTeamSheet = TeamSheet(
       teamName: "Home Team",
       roster: [
@@ -92,296 +245,445 @@ class MatchEngine extends ChangeNotifier {
       ],
       startingLineup: [2, 4, 6, 8, 10, 12],
     );
-
-    homeOnCourt = List.from(homeTeamSheet.startingLineup);
-    awayOnCourt = List.from(awayTeamSheet.startingLineup);
   }
 
-  Future<void> _initStorage() async {
-    _prefs = await SharedPreferences.getInstance();
-    await loadState();
-  }
+  TeamSheet sheetOf(Team team) =>
+      team == Team.home ? homeTeamSheet : awayTeamSheet;
 
-  Future<void> _saveState() async {
-    await _prefs.setInt('currentSet', currentSet);
-    await _prefs.setInt('homeScore', _homeScore);
-    await _prefs.setInt('awayScore', _awayScore);
-    await _prefs.setInt('homeTO', _homeTimeOuts);
-    await _prefs.setInt('awayTO', _awayTimeOuts);
-    await _prefs.setInt('homeSubs', _homeSubCount);
-    await _prefs.setInt('awaySubs', _awaySubCount);
-  }
-
-  Future<void> loadState() async {
-    currentSet = _prefs.getInt('currentSet') ?? 1;
-    _homeScore = _prefs.getInt('homeScore') ?? 0;
-    _awayScore = _prefs.getInt('awayScore') ?? 0;
-    _homeTimeOuts = _prefs.getInt('homeTO') ?? 0;
-    _awayTimeOuts = _prefs.getInt('awayTO') ?? 0;
-    _homeSubCount = _prefs.getInt('homeSubs') ?? 0;
-    _awaySubCount = _prefs.getInt('awaySubs') ?? 0;
+  /// Replace the team sheets. Only allowed before the match starts.
+  /// (Team sheets are not saved yet: after a restart the defaults are used.)
+  void setTeams(TeamSheet home, TeamSheet away) {
+    if (matchStarted) return;
+    homeTeamSheet = home;
+    awayTeamSheet = away;
+    _s = _replay();
     notifyListeners();
   }
 
-  void setMatchMode(MatchMode mode) {
-    matchMode = mode;
+  Future<void> _loadAsync() async {
+    final prefs = await SharedPreferences.getInstance();
+    _prefs = prefs;
+    // If the scorer already tapped before loading finished, keep what they
+    // did rather than overwriting it with older saved data.
+    if (_events.isEmpty) {
+      _restore(prefs);
+      notifyListeners();
+    }
+  }
+
+  void _restore(SharedPreferences prefs) {
+    final raw = prefs.getString(_storageKey);
+    if (raw == null) return;
+    try {
+      final data = jsonDecode(raw) as Map<String, dynamic>;
+      _matchMode = MatchMode.values.byName(data['mode'] as String);
+      final events = (data['events'] as List)
+          .map((e) => MatchEvent.fromJson(e as Map<String, dynamic>))
+          .toList();
+      _events
+        ..clear()
+        ..addAll(events);
+      _s = _replay();
+    } catch (e) {
+      debugPrint('SpikeScore: could not restore saved match: $e');
+      _events.clear();
+      _s = _replay();
+    }
+  }
+
+  Future<void> _save() async {
+    final prefs = _prefs ??= await SharedPreferences.getInstance();
+    await prefs.setString(
+      _storageKey,
+      jsonEncode({
+        'mode': _matchMode.name,
+        'events': _events.map((e) => e.toJson()).toList(),
+      }),
+    );
+  }
+
+  /// Adds an event, updates the screen immediately, then saves in the
+  /// background. State is already updated by the time the returned future
+  /// completes its first step, so callers don't need to await it to read the
+  /// new score.
+  Future<void> _record(MatchEvent event) async {
+    final closedBefore = _closedRoundCount();
+    _events.add(event);
+    _s = _replay();
+    _logClosedRounds(closedBefore);
     notifyListeners();
+    await _save();
   }
 
-  bool get isDecidingSet {
-    int maxSets = matchMode == MatchMode.localLeague3Set ? 3 : 5;
-    return currentSet == maxSets;
+  // Rounds always close in order, so the closed ones are a prefix of the list.
+  int _closedRoundCount() => _s.rounds.where((r) => !r.open).length;
+
+  /// Debug only: prints one line for every service round that finished since
+  /// [alreadyLogged] rounds were closed, laid out like the scoresheet row:
+  /// set, team, service-order position (I to VI), the number of the starter
+  /// in that position, then the team's score when the round ended, e.g.
+  /// "[service] Set 1 Home I #1: 3". If someone else served the round (a
+  /// substitute), they are added: "[service] Set 1 Home I #1 (served: #13): 3".
+  /// Only runs for newly recorded events, never during replay, undo or restore.
+  void _logClosedRounds(int alreadyLogged) {
+    if (!kDebugMode) return;
+    final closed = _s.rounds.where((r) => !r.open).toList();
+    for (var i = alreadyLogged; i < closed.length; i++) {
+      final r = closed[i];
+      final starter = sheetOf(r.team).startingLineup[r.position - 1];
+      final position = ServiceRound.romanNumerals[r.position - 1];
+      final servers = r.servers.map((n) => '#$n').join(', ');
+      final servedBy =
+          (r.servers.length == 1 && r.servers.first == starter) ? '' : ' (served: $servers)';
+      debugPrint(
+        '[service] Set ${r.setNumber} ${r.team.label} $position #$starter$servedBy: ${r.endOwn}',
+      );
+    }
   }
 
-  int get targetPoints {
-    return isDecidingSet ? 15 : 25;
+  // ---------------------------------------------------------------------------
+  // Replay: events -> state
+  // ---------------------------------------------------------------------------
+
+  _Derived _replay() {
+    final s = _Derived({
+      Team.home: _TeamState(homeTeamSheet.startingLineup),
+      Team.away: _TeamState(awayTeamSheet.startingLineup),
+    });
+
+    for (final e in _events) {
+      final team = e.team;
+
+      switch (e.type) {
+        case EventType.firstServe:
+          {
+            s.servingTeam = team;
+            if (team != null) _openRound(s, team);
+            break;
+          }
+
+        case EventType.point:
+          {
+            // Defensive: ignore points before the serve is chosen or after
+            // the set has ended.
+            if (team == null || s.servingTeam == null || _isComplete(s)) break;
+            final t = s.teams[team]!;
+            t.score++;
+            if (team == s.servingTeam) {
+              // The serving team keeps serving; its current round grows.
+              s.openRound?.endOwn = t.score;
+            } else {
+              // Side-out: the receiving team wins the rally, gains the serve
+              // and rotates. The previous round ended just before this point.
+              s.openRound?.open = false;
+              s.servingTeam = team;
+              t.rotate();
+              _openRound(s, team);
+            }
+            if (_isComplete(s)) {
+              // The set is over: the last round ends at the final score.
+              s.openRound?.open = false;
+              s.openRound = null;
+            }
+            break;
+          }
+
+        case EventType.timeout:
+          {
+            if (team == null) break;
+            s.teams[team]!.timeOuts++;
+            break;
+          }
+
+        case EventType.sub:
+          {
+            if (team == null) break;
+            final t = s.teams[team]!;
+            final off = e.playerOff!;
+            final on = e.playerOn!;
+
+            // If the server is replaced mid-round, the substitute serves on.
+            final replacesServer = s.servingTeam == team &&
+                t.onCourt.isNotEmpty &&
+                t.onCourt[0] == off;
+
+            // The replacement takes the court position of the player leaving.
+            final index = t.onCourt.indexOf(off);
+            if (index != -1) t.onCourt[index] = on;
+            if (replacesServer) s.openRound?.servers.add(on);
+
+            t.subPairs[off] = on;
+            t.subPairs[on] = off;
+
+            final swaps = (t.pairSubCounts[off] ?? 0) + 1;
+            t.pairSubCounts[off] = swaps;
+            t.pairSubCounts[on] = swaps;
+
+            t.subCount++;
+            break;
+          }
+
+        case EventType.newSet:
+          {
+            final home = s.teams[Team.home]!;
+            final away = s.teams[Team.away]!;
+
+            if (_isComplete(s)) {
+              if (home.score > away.score) {
+                home.setsWon++;
+              } else {
+                away.setsWon++;
+              }
+            }
+            s.setHistory.add(
+              "Set ${s.currentSet}: Home ${home.score} - ${away.score} Away",
+            );
+
+            s.currentSet++;
+            home.startSet(homeTeamSheet.startingLineup);
+            away.startSet(awayTeamSheet.startingLineup);
+            s.servingTeam = null; // first serve is chosen again each set
+            s.openRound = null;
+            break;
+          }
+      }
+    }
+    return s;
   }
 
-  bool get isSetComplete {
-    int target = targetPoints;
-    return (_homeScore >= target || _awayScore >= target) && (_homeScore - _awayScore).abs() >= 2;
+  // ---------------------------------------------------------------------------
+  // Rules
+  // ---------------------------------------------------------------------------
+
+  int get _maxSets => _matchMode == MatchMode.localLeague3Set ? 3 : 5;
+
+  int _targetFor(int setNumber) => setNumber == _maxSets ? 15 : 25;
+
+  bool _isComplete(_Derived s) {
+    final home = s.teams[Team.home]!.score;
+    final away = s.teams[Team.away]!.score;
+    final target = _targetFor(s.currentSet);
+    return (home >= target || away >= target) && (home - away).abs() >= 2;
   }
 
-  String? get winningTeam {
+  /// Starts a new service round for [team], who is about to serve.
+  void _openRound(_Derived s, Team team) {
+    final t = s.teams[team]!;
+    final o = s.teams[team.other]!;
+    final round = _Round(
+      setNumber: s.currentSet,
+      team: team,
+      position: t.serviceSlot + 1,
+      server: t.onCourt[0],
+      startOwn: t.score,
+      opponentScore: o.score,
+    );
+    s.rounds.add(round);
+    s.openRound = round;
+  }
+
+  MatchMode get matchMode => _matchMode;
+
+  /// True once anything has been recorded; the format is locked from then on.
+  bool get matchStarted => _events.isNotEmpty;
+
+  /// Changes the match format. Ignored once the match has started, because it
+  /// would change set targets and who has won.
+  Future<void> setMatchMode(MatchMode mode) async {
+    if (matchStarted) return;
+    _matchMode = mode;
+    _s = _replay();
+    notifyListeners();
+    await _save();
+  }
+
+  bool get isDecidingSet => _s.currentSet == _maxSets;
+  int get targetPoints => _targetFor(_s.currentSet);
+  bool get isSetComplete => _isComplete(_s);
+
+  Team? get winningTeam {
     if (!isSetComplete) return null;
-    return _homeScore > _awayScore ? "Home" : "Away";
+    return scoreOf(Team.home) > scoreOf(Team.away) ? Team.home : Team.away;
   }
 
-  /// Required set wins to win the match (2 wins for 3-set, 3 wins for 5-set)
-  int get requiredSetsToWin {
-    return matchMode == MatchMode.localLeague3Set ? 2 : 3;
-  }
+  /// Set wins needed to win the match (2 for 3-set, 3 for 5-set).
+  int get requiredSetsToWin => _matchMode == MatchMode.localLeague3Set ? 2 : 3;
 
-  /// Total sets played so far in this match
   bool get isMatchComplete {
-    if (!isSetComplete) {
-      // Check if earlier sets already clinched the match
-      return homeSetsWon >= requiredSetsToWin || awaySetsWon >= requiredSetsToWin;
-    }
-    
-    // Check if adding the current set's winner completes the match
-    int currentHomeWins = homeSetsWon + (winningTeam == "Home" ? 1 : 0);
-    int currentAwayWins = awaySetsWon + (winningTeam == "Away" ? 1 : 0);
-
-    return currentHomeWins >= requiredSetsToWin || currentAwayWins >= requiredSetsToWin;
+    final home = setsWonOf(Team.home) + (winningTeam == Team.home ? 1 : 0);
+    final away = setsWonOf(Team.away) + (winningTeam == Team.away ? 1 : 0);
+    return home >= requiredSetsToWin || away >= requiredSetsToWin;
   }
 
-  Future<void> scorePoint(String team) async {
-    // Prevent scoring if the set is already complete
-    if (isSetComplete) return;
+  // ---------------------------------------------------------------------------
+  // Read-only state for the UI
+  // ---------------------------------------------------------------------------
 
-    if (team == "Home") {
-      _homeScore++;
-    } else {
-      _awayScore++;
-    }
+  _TeamState _ts(Team team) => _s.teams[team]!;
 
-    _eventHistory.add(MatchEvent("Point", team));
-    await _saveState();
-    notifyListeners();
+  int get currentSet => _s.currentSet;
+
+  int scoreOf(Team team) => _ts(team).score;
+  int setsWonOf(Team team) => _ts(team).setsWon;
+  int timeOutsOf(Team team) => _ts(team).timeOuts;
+  int subCountOf(Team team) => _ts(team).subCount;
+
+  int get homeScore => scoreOf(Team.home);
+  int get awayScore => scoreOf(Team.away);
+  int get homeSetsWon => setsWonOf(Team.home);
+  int get awaySetsWon => setsWonOf(Team.away);
+  int get homeTimeOuts => timeOutsOf(Team.home);
+  int get awayTimeOuts => timeOutsOf(Team.away);
+  int get homeSubCount => subCountOf(Team.home);
+  int get awaySubCount => subCountOf(Team.away);
+
+  List<String> get setHistory => List.unmodifiable(_s.setHistory);
+
+  bool get canUndo => _events.isNotEmpty;
+
+  // ---------------------------------------------------------------------------
+  // Serving & rotation
+  // ---------------------------------------------------------------------------
+
+  Team? get servingTeam => _s.servingTeam;
+
+  /// True at the start of every set until the scorer picks who serves first.
+  /// Points can't be scored until then.
+  bool get needsFirstServe => _s.servingTeam == null;
+
+  Player _playerFor(Team team, int number) =>
+      sheetOf(team).roster.firstWhere((p) => p.number == number);
+
+  /// The player currently serving (position I of the serving team).
+  Player? get currentServer {
+    final team = _s.servingTeam;
+    if (team == null) return null;
+    return _playerFor(team, _ts(team).onCourt[0]);
   }
 
-  Future<bool> takeTimeout(String team) async {
-    int currentTOs = team == "Home" ? _homeTimeOuts : _awayTimeOuts;
-    if (currentTOs >= 2) return false;
+  /// Who will be serving for [team] if it wins the next rally. For the
+  /// serving team that is the current server; for the receiving team it is
+  /// the player in position II, who rotates into position I.
+  Player? serverIfWins(Team team) {
+    final serving = _s.servingTeam;
+    if (serving == null) return null;
+    return _playerFor(team, _ts(team).onCourt[team == serving ? 0 : 1]);
+  }
 
-    if (team == "Home") {
-      _homeTimeOuts++;
-    } else {
-      _awayTimeOuts++;
-    }
+  /// Every service round of the match so far, in order, across all sets.
+  List<ServiceRound> get serviceRounds =>
+      [for (final r in _s.rounds) r.toPublic()];
 
-    _eventHistory.add(MatchEvent("Timeout", team));
-    await _saveState();
-    notifyListeners();
+  /// Service rounds for one team in one set (default: the current set), in
+  /// the order they happened.
+  List<ServiceRound> serviceRoundsFor(Team team, {int? setNumber}) {
+    final n = setNumber ?? _s.currentSet;
+    return [
+      for (final r in _s.rounds)
+        if (r.team == team && r.setNumber == n) r.toPublic()
+    ];
+  }
+
+  /// Choose which team serves first in the current set.
+  Future<void> chooseFirstServe(Team team) async {
+    if (!needsFirstServe) return;
+    await _record(MatchEvent(EventType.firstServe, team: team));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Actions
+  // ---------------------------------------------------------------------------
+
+  Future<void> scorePoint(Team team) async {
+    if (needsFirstServe || isSetComplete) return;
+    await _record(MatchEvent(EventType.point, team: team));
+  }
+
+  Future<bool> takeTimeout(Team team) async {
+    if (timeOutsOf(team) >= 2) return false;
+    await _record(MatchEvent(EventType.timeout, team: team));
     return true;
   }
 
-  // --- SUBSTITUTION LOGIC ---
-  bool canTakeSub(String team) {
-    int count = team == "Home" ? _homeSubCount : _awaySubCount;
-    return count < 6;
+  Future<void> startNewSet() async {
+    if (!isSetComplete || isMatchComplete) return;
+    await _record(const MatchEvent(EventType.newSet));
   }
 
-  List<Player> getOnCourtPlayers(String team) {
-    final sheet = team == "Home" ? homeTeamSheet : awayTeamSheet;
-    final onCourtNums = team == "Home" ? homeOnCourt : awayOnCourt;
-    return sheet.roster.where((p) => onCourtNums.contains(p.number)).toList();
+  Future<void> undo() async {
+    if (_events.isEmpty) return;
+    _events.removeLast();
+    _s = _replay();
+    notifyListeners();
+    await _save();
   }
 
-  int getSubCountForPlayer(String team, int playerNum) {
-    return _pairSubCounts[team]![playerNum] ?? 0;
+  Future<void> resetMatch() async {
+    _events.clear();
+    _s = _replay();
+    notifyListeners();
+    await _save();
   }
 
-  bool isPositionExhausted(String team, int playerNum) {
-    return getSubCountForPlayer(team, playerNum) >= 2;
+  // ---------------------------------------------------------------------------
+  // Substitutions
+  // ---------------------------------------------------------------------------
+
+  bool canTakeSub(Team team) => subCountOf(team) < 6;
+
+  /// Players on court, in court-position order (I, II, III, IV, V, VI).
+  List<Player> getOnCourtPlayers(Team team) =>
+      _ts(team).onCourt.map((n) => _playerFor(team, n)).toList();
+
+  int getSubCountForPlayer(Team team, int playerNum) =>
+      _ts(team).pairSubCounts[playerNum] ?? 0;
+
+  bool isPositionExhausted(Team team, int playerNum) =>
+      getSubCountForPlayer(team, playerNum) >= 2;
+
+  Player? getLockedSubPartner(Team team, int playerOffNum) {
+    final partnerNum = _ts(team).subPairs[playerOffNum];
+    if (partnerNum == null) return null;
+    return _playerFor(team, partnerNum);
   }
 
-  Player? getLockedSubPartner(String team, int playerOffNum) {
-    final pairs = _subPairs[team]!;
-    if (pairs.containsKey(playerOffNum)) {
-      int partnerNum = pairs[playerOffNum]!;
-      final sheet = team == "Home" ? homeTeamSheet : awayTeamSheet;
-      return sheet.roster.firstWhere((p) => p.number == partnerNum);
-    }
-    return null;
-  }
+  List<Player> getEligibleBenchPlayers(Team team, int playerOffNum) {
+    final t = _ts(team);
 
-  List<Player> getEligibleBenchPlayers(String team, int playerOffNum) {
-    final sheet = team == "Home" ? homeTeamSheet : awayTeamSheet;
-    final onCourtNums = team == "Home" ? homeOnCourt : awayOnCourt;
-
-    Player? lockedPartner = getLockedSubPartner(team, playerOffNum);
+    // A player who has been subbed once must be replaced by their partner.
+    final lockedPartner = getLockedSubPartner(team, playerOffNum);
     if (lockedPartner != null && getSubCountForPlayer(team, playerOffNum) == 1) {
       return [lockedPartner];
     }
 
-    return sheet.roster.where((p) => !onCourtNums.contains(p.number)).toList();
+    // Otherwise: anyone on the bench who isn't already tied to someone else.
+    return sheetOf(team)
+        .roster
+        .where((p) =>
+            !t.onCourt.contains(p.number) && !t.subPairs.containsKey(p.number))
+        .toList();
   }
 
-  Future<void> executeSubstitution(String team, int playerOffNum, int playerOnNum) async {
-    List<int> onCourtNums = team == "Home" ? homeOnCourt : awayOnCourt;
+  Future<void> executeSubstitution(
+    Team team,
+    int playerOffNum,
+    int playerOnNum,
+  ) async {
+    // The engine enforces the rules itself, so a stale or double tap can't
+    // record an impossible sub.
+    if (!canTakeSub(team)) return;
+    if (isPositionExhausted(team, playerOffNum)) return;
+    if (!_ts(team).onCourt.contains(playerOffNum)) return;
+    final allowed = getEligibleBenchPlayers(team, playerOffNum);
+    if (!allowed.any((p) => p.number == playerOnNum)) return;
 
-    int index = onCourtNums.indexOf(playerOffNum);
-    if (index != -1) {
-      onCourtNums[index] = playerOnNum;
-    } else {
-      onCourtNums.remove(playerOffNum);
-      onCourtNums.add(playerOnNum);
-    }
-
-    _subPairs[team]![playerOffNum] = playerOnNum;
-    _subPairs[team]![playerOnNum] = playerOffNum;
-
-    int existingCount = _pairSubCounts[team]![playerOffNum] ?? 0;
-    int newPairSubs = existingCount + 1;
-
-    _pairSubCounts[team]![playerOffNum] = newPairSubs;
-    _pairSubCounts[team]![playerOnNum] = newPairSubs;
-
-    if (team == "Home") {
-      _homeSubCount++;
-    } else {
-      _awaySubCount++;
-    }
-
-    _eventHistory.add(MatchEvent("Sub", team, playerOff: playerOffNum, playerOn: playerOnNum));
-    await _saveState();
-    notifyListeners();
-  }
-
-  // --- SET & MATCH RESET LOGIC ---
-
-  Future<void> startNewSet() async {
-    // Record set winner before clearing scores
-    if (winningTeam == "Home") {
-      _homeSetsWon++;
-    } else if (winningTeam == "Away") {
-      _awaySetsWon++;
-    }
-
-    setHistory.add("Set $currentSet: Home $_homeScore - $_awayScore Away");
-
-    // Advance set counter and reset set metrics
-    currentSet++;
-    _homeScore = 0;
-    _awayScore = 0;
-    _homeTimeOuts = 0;
-    _awayTimeOuts = 0;
-    _homeSubCount = 0;
-    _awaySubCount = 0;
-
-    _subPairs["Home"]!.clear();
-    _subPairs["Away"]!.clear();
-    _pairSubCounts["Home"]!.clear();
-    _pairSubCounts["Away"]!.clear();
-
-    homeOnCourt = List.from(homeTeamSheet.startingLineup);
-    awayOnCourt = List.from(awayTeamSheet.startingLineup);
-
-    _eventHistory.add(MatchEvent("NewSet", "Match"));
-    await _saveState();
-    notifyListeners();
-  }
-
-  Future<void> resetMatch() async {
-    _homeScore = 0;
-    _awayScore = 0;
-    _homeTimeOuts = 0;
-    _awayTimeOuts = 0;
-    _homeSubCount = 0;
-    _awaySubCount = 0;
-    currentSet = 1;
-    _homeSetsWon = 0;
-    _awaySetsWon = 0;
-
-    setHistory.clear();
-    _eventHistory.clear();
-
-    _subPairs["Home"]!.clear();
-    _subPairs["Away"]!.clear();
-    _pairSubCounts["Home"]!.clear();
-    _pairSubCounts["Away"]!.clear();
-
-    homeOnCourt = List.from(homeTeamSheet.startingLineup);
-    awayOnCourt = List.from(awayTeamSheet.startingLineup);
-
-    await _prefs.clear();
-    await _saveState();
-    notifyListeners();
-  }
-
-  Future<void> undo() async {
-    if (!canUndo) return;
-    var lastEvent = _eventHistory.removeLast();
-
-    if (lastEvent.type == "Point") {
-      if (lastEvent.team == "Home" && _homeScore > 0) _homeScore--;
-      if (lastEvent.team == "Away" && _awayScore > 0) _awayScore--;
-    } else if (lastEvent.type == "NewSet") {
-      // Revert set transition
-      if (setHistory.isNotEmpty) {
-        setHistory.removeLast();
-      }
-      if (currentSet > 1) currentSet--;
-
-      // Adjust sets won counts
-      if (_homeSetsWon > 0 && _homeSetsWon > _awaySetsWon) {
-        _homeSetsWon--;
-      } else if (_awaySetsWon > 0 && _awaySetsWon > _homeSetsWon) {
-        _awaySetsWon--;
-      }
-    } else if (lastEvent.type == "Timeout") {
-      if (lastEvent.team == "Home" && _homeTimeOuts > 0) _homeTimeOuts--;
-      if (lastEvent.team == "Away" && _awayTimeOuts > 0) _awayTimeOuts--;
-    } else if (lastEvent.type == "Sub") {
-      List<int> onCourtNums = lastEvent.team == "Home" ? homeOnCourt : awayOnCourt;
-
-      int pOff = lastEvent.playerOff!;
-      int pOn = lastEvent.playerOn!;
-
-      int index = onCourtNums.indexOf(pOn);
-      if (index != -1) {
-        onCourtNums[index] = pOff;
-      }
-
-      int newCount = (_pairSubCounts[lastEvent.team]![pOff] ?? 1) - 1;
-      _pairSubCounts[lastEvent.team]![pOff] = newCount;
-      _pairSubCounts[lastEvent.team]![pOn] = newCount;
-
-      if (newCount == 0) {
-        _subPairs[lastEvent.team]!.remove(pOff);
-        _subPairs[lastEvent.team]!.remove(pOn);
-      }
-
-      if (lastEvent.team == "Home") {
-        _homeSubCount--;
-      } else {
-        _awaySubCount--;
-      }
-    }
-
-    await _saveState();
-    notifyListeners();
+    await _record(
+      MatchEvent(
+        EventType.sub,
+        team: team,
+        playerOff: playerOffNum,
+        playerOn: playerOnNum,
+      ),
+    );
   }
 }
