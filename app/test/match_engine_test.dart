@@ -2,9 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-// Adjust these paths if your test folder isn't next to lib/.
-import '../lib/match_engine.dart';
-import '../lib/models.dart';
+import 'package:spikescore/match_engine.dart';
+import 'package:spikescore/models.dart';
 
 Future<MatchEngine> newEngine() async {
   final prefs = await SharedPreferences.getInstance();
@@ -163,18 +162,139 @@ void main() {
       expect(lineup(e, Team.home), [13, 3, 5, 7, 9, 11]);
     });
 
-    test('each set needs a new first serve and starts from the original lineup', () async {
+    test('set 2 starts from the original lineups', () async {
       final e = await newEngine();
       await playSet(e, winner: Team.home, loserPoints: 20); // both teams rotate
       await e.startNewSet();
 
-      expect(e.needsFirstServe, isTrue);
-      expect(e.servingTeam, isNull);
       expect(lineup(e, Team.home), [1, 3, 5, 7, 9, 11]);
       expect(lineup(e, Team.away), [2, 4, 6, 8, 10, 12]);
-
-      await e.scorePoint(Team.home); // ignored until serve is chosen
       expect(e.homeScore, 0);
+      expect(e.awayScore, 0);
+    });
+  });
+
+  group('sides and first serve order', () {
+    /// Plays sets 1 and 2 (home wins the first, away the second) and moves on
+    /// to the deciding set.
+    Future<void> toDecidingSet(MatchEngine e) async {
+      await playSet(e, winner: Team.home);
+      await e.startNewSet();
+      await playSet(e, winner: Team.away);
+      await e.startNewSet();
+    }
+
+    test('sides are asked once at the start; the default is home on the left', () async {
+      final e = await newEngine();
+      expect(e.needsSides, isTrue);
+      expect(e.leftTeam, Team.home);
+
+      await e.chooseSides(Team.away);
+      expect(e.needsSides, isFalse);
+      expect(e.leftTeam, Team.away);
+      expect(e.rightTeam, Team.home);
+      expect(e.startingLeft, {1: Team.away});
+    });
+
+    test('choosing sides a second time in the same set is ignored', () async {
+      final e = await newEngine();
+      await e.chooseSides(Team.away);
+      await e.chooseSides(Team.home);
+      expect(e.leftTeam, Team.away);
+    });
+
+    test('undo takes the sides choice back', () async {
+      final e = await newEngine();
+      await e.chooseSides(Team.away);
+      await e.undo();
+      expect(e.needsSides, isTrue);
+      expect(e.leftTeam, Team.home);
+    });
+
+    test('set 2 swaps sides and the other team serves first, without asking', () async {
+      final e = await newEngine();
+      await e.chooseSides(Team.away);
+      await e.chooseFirstServe(Team.home);
+      await playSet(e, winner: Team.home);
+      await e.startNewSet();
+
+      expect(e.needsSides, isFalse);
+      expect(e.needsFirstServe, isFalse);
+      expect(e.leftTeam, Team.home); // swapped
+      expect(e.servingTeam, Team.away); // the team that did not serve first
+      expect(e.firstServers, {1: Team.home, 2: Team.away});
+      expect(e.startingLeft, {1: Team.away, 2: Team.home});
+
+      // Points count straight away.
+      await e.scorePoint(Team.away);
+      expect(e.awayScore, 1);
+    });
+
+    test('undoing the start of set 2 puts sides and serve back', () async {
+      final e = await newEngine();
+      await e.chooseSides(Team.away);
+      await e.chooseFirstServe(Team.home);
+      await playSet(e, winner: Team.home);
+      await e.startNewSet();
+      await e.undo();
+
+      expect(e.currentSet, 1);
+      expect(e.leftTeam, Team.away);
+      expect(e.servingTeam, isNotNull);
+      expect(e.firstServers, {1: Team.home});
+    });
+
+    test('the deciding set has a new coin toss for sides and for serve', () async {
+      final e = await newEngine();
+      await e.chooseSides(Team.home);
+      await toDecidingSet(e);
+
+      expect(e.currentSet, 3);
+      expect(e.needsSides, isTrue);
+      expect(e.needsFirstServe, isTrue);
+      expect(e.servingTeam, isNull);
+      await e.scorePoint(Team.home); // ignored until the toss is done
+      expect(e.homeScore, 0);
+
+      await e.chooseSides(Team.away);
+      await e.chooseFirstServe(Team.home);
+      expect(e.leftTeam, Team.away);
+      expect(e.servingTeam, Team.home);
+      expect(e.startingLeft[3], Team.away);
+      expect(e.firstServers[3], Team.home);
+    });
+
+    test('in the deciding set the teams change ends when a team reaches 8', () async {
+      final e = await newEngine();
+      await toDecidingSet(e);
+      await e.chooseSides(Team.home);
+      await e.chooseFirstServe(Team.home);
+
+      await score(e, Team.away, 3);
+      await score(e, Team.home, 7);
+      expect(e.leftTeam, Team.home); // 7:3, not yet
+
+      await e.scorePoint(Team.home); // 8:3
+      expect(e.leftTeam, Team.away);
+      expect(e.rightTeam, Team.home);
+
+      await score(e, Team.home, 3); // they only change once
+      expect(e.leftTeam, Team.away);
+      expect(e.startingLeft[3], Team.home); // where the set started
+
+      await e.undo();
+      await e.undo();
+      await e.undo();
+      await e.undo(); // back to 7:3
+      expect(e.leftTeam, Team.home);
+    });
+
+    test('sets 1 and 2 never change ends mid-set', () async {
+      final e = await newEngine();
+      await e.chooseSides(Team.home);
+      await e.chooseFirstServe(Team.home);
+      await score(e, Team.home, 20);
+      expect(e.leftTeam, Team.home);
     });
   });
 
@@ -517,6 +637,77 @@ void main() {
       await e.scorePoint(Team.away); // ends home's round on 2
 
       expect(lines, ['[service] Set 1 Home I #1 (served: #13): 2']);
+    });
+  });
+
+  group('signatures', () {
+    final ink = <List<List<double>>>[
+      [
+        [0.1, 0.2],
+        [0.3, 0.6],
+        [0.5, 0.3],
+      ],
+      [
+        [0.1, 0.9],
+        [0.8, 0.9],
+      ],
+    ];
+
+    test('can be saved, replaced and cleared', () async {
+      final e = await newEngine();
+      expect(e.signatures, isEmpty);
+
+      await e.setSignature('ref1', ink);
+      expect(e.signatures['ref1'], ink);
+
+      final other = <List<List<double>>>[
+        [
+          [0.2, 0.2],
+          [0.4, 0.4],
+        ],
+      ];
+      await e.setSignature('ref1', other);
+      expect(e.signatures['ref1'], other);
+
+      await e.clearSignature('ref1');
+      expect(e.signatures, isEmpty);
+    });
+
+    test('an empty drawing is not saved', () async {
+      final e = await newEngine();
+      await e.setSignature('scorer', []);
+      expect(e.signatures, isEmpty);
+    });
+
+    test('survive a restart', () async {
+      final a = await newEngine();
+      await a.setSignature('captain:home', ink);
+      await a.setSignature('lineJudge3', ink);
+
+      final b = await newEngine();
+      expect(b.signatures.keys.toSet(), {'captain:home', 'lineJudge3'});
+      expect(b.signatures['captain:home'], ink);
+    });
+
+    test('undo leaves them alone, reset clears them', () async {
+      final e = await newEngine();
+      await e.chooseFirstServe(Team.home);
+      await e.setSignature('scorer', ink);
+
+      await e.undo();
+      expect(e.signatures['scorer'], ink);
+
+      await e.resetMatch();
+      expect(e.signatures, isEmpty);
+
+      final reloaded = await newEngine();
+      expect(reloaded.signatures, isEmpty);
+    });
+
+    test('they do not lock the match format', () async {
+      final e = await newEngine();
+      await e.setSignature('ref1', ink);
+      expect(e.matchStarted, isFalse);
     });
   });
 

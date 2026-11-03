@@ -1,0 +1,359 @@
+{
+  "_readme": [
+    "This file is the data SpikeScore starts with. Edit it, save, then fully restart the app (stop it and run again).",
+    "match: the details printed in the header of the scoresheet. Delete a line to leave that box blank.",
+    "match.home / match.away: the 'id' of the two teams that are playing. Change these to swap teams.",
+    "match.date is YYYY-MM-DD and match.time is HH:MM (24 hour). match.category is men, women or mixed.",
+    "teams: the library of teams. Add as many as you like, copying one of the blocks below.",
+    "players: shirt number, name and position. Shirt numbers must be different within a team. The sheet has room for 13 players. A player with position Libero is also listed in the libero rows.",
+    "startingLineup: the six starters in service order, I to VI (the first number serves first). If it is missing or wrong, the first six non-libero players are used.",
+    "officials: role is C (coach), AC (assistant coach), T (trainer) or M (medical). The sheet has room for 4 per team.",
+    "If you change a team, the match that was saved on the phone is dropped automatically so it can't clash with the new data.",
+    "If this file has a mistake, the app shows an orange message at the top and uses its built-in teams until it is fixed."
+  ],
+  "match": {
+    "competition": "Berkshire Mixed League",
+    "matchType": "League",
+    "matchNumber": "07",
+    "venue": "Reading Sports Centre",
+    "division": "2",
+    "category": "mixed",
+    "juniors": false,
+    "date": "2026-11-14",
+    "time": "19:30",
+    "home": "reading-rockets",
+    "away": "slough-smashers"
+  },
+  "teams": [
+    {
+      "id": "reading-rockets",
+      "name": "Reading Rockets",
+      "players": [
+        {
+          "number": 1,
+          "name": "A. Hughes",
+          "position": "Setter"
+        },
+        {
+          "number": 3,
+          "name": "B. Carter",
+          "position": "Outside Hitter"
+        },
+        {
+          "number": 5,
+          "name": "C. Patel",
+          "position": "Middle Blocker"
+        },
+        {
+          "number": 7,
+          "name": "D. Okafor",
+          "position": "Opposite"
+        },
+        {
+          "number": 9,
+          "name": "E. Morgan",
+          "position": "Outside Hitter"
+        },
+        {
+          "number": 11,
+          "name": "F. Bennett",
+          "position": "Middle Blocker"
+        },
+        {
+          "number": 13,
+          "name": "G. Lewis",
+          "position": "Setter"
+        },
+        {
+          "number": 15,
+          "name": "H. Foster",
+          "position": "Outside Hitter"
+        },
+        {
+          "number": 17,
+          "name": "I. Nowak",
+          "position": "Middle Blocker"
+        },
+        {
+          "number": 8,
+          "name": "J. Reid",
+          "position": "Opposite"
+        },
+        {
+          "number": 12,
+          "name": "K. Price",
+          "position": "Outside Hitter"
+        },
+        {
+          "number": 4,
+          "name": "L. Dunn",
+          "position": "Libero"
+        }
+      ],
+      "startingLineup": [
+        1,
+        3,
+        5,
+        7,
+        9,
+        11
+      ],
+      "officials": [
+        {
+          "role": "C",
+          "name": "M. Turner"
+        },
+        {
+          "role": "AC",
+          "name": "P. Singh"
+        },
+        {
+          "role": "T",
+          "name": "R. Cole"
+        }
+      ]
+    },
+    {
+      "id": "slough-smashers",
+      "name": "Slough Smashers",
+      "players": [
+        {
+          "number": 2,
+          "name": "J. Wilson",
+          "position": "Setter"
+        },
+        {
+          "number": 4,
+          "name": "K. Wright",
+          "position": "Outside Hitter"
+        },
+        {
+          "number": 6,
+          "name": "L. Thompson",
+          "position": "Middle Blocker"
+        },
+        {
+          "number": 8,
+          "name": "M. White",
+          "position": "Opposite"
+        },
+        {
+          "number": 10,
+          "name": "N. Hughes",
+          "position": "Outside Hitter"
+        },
+        {
+          "number": 12,
+          "name": "O. Edwards",
+          "position": "Middle Blocker"
+        },
+        {
+          "number": 14,
+          "name": "P. Green",
+          "position": "Setter"
+        },
+        {
+          "number": 16,
+          "name": "Q. Hall",
+          "position": "Outside Hitter"
+        },
+        {
+          "number": 18,
+          "name": "R. Moore",
+          "position": "Middle Blocker"
+        },
+        {
+          "number": 20,
+          "name": "S. Ali",
+          "position": "Opposite"
+        },
+        {
+          "number": 22,
+          "name": "T. Brooks",
+          "position": "Outside Hitter"
+        },
+        {
+          "number": 5,
+          "name": "U. Kaur",
+          "position": "Libero"
+        }
+      ],
+      "startingLineup": [
+        2,
+        4,
+        6,
+        8,
+        10,
+        12
+      ],
+      "officials": [
+        {
+          "role": "C",
+          "name": "D. Whitfield"
+        },
+        {
+          "role": "M",
+          "name": "S. Ahmed"
+        }
+      ]
+    },
+    {
+      "id": "newbury-net-ninjas",
+      "name": "Newbury Net Ninjas",
+      "players": [
+        {
+          "number": 1,
+          "name": "V. Clarke",
+          "position": "Setter"
+        },
+        {
+          "number": 2,
+          "name": "W. Ng",
+          "position": "Outside Hitter"
+        },
+        {
+          "number": 3,
+          "name": "X. Adams",
+          "position": "Middle Blocker"
+        },
+        {
+          "number": 4,
+          "name": "Y. Bell",
+          "position": "Opposite"
+        },
+        {
+          "number": 5,
+          "name": "Z. Cooper",
+          "position": "Outside Hitter"
+        },
+        {
+          "number": 6,
+          "name": "A. Dixon",
+          "position": "Middle Blocker"
+        },
+        {
+          "number": 7,
+          "name": "B. Ellis",
+          "position": "Setter"
+        },
+        {
+          "number": 8,
+          "name": "C. Fox",
+          "position": "Outside Hitter"
+        },
+        {
+          "number": 9,
+          "name": "D. Grant",
+          "position": "Middle Blocker"
+        },
+        {
+          "number": 10,
+          "name": "E. Hart",
+          "position": "Opposite"
+        },
+        {
+          "number": 11,
+          "name": "F. Ivey",
+          "position": "Libero"
+        }
+      ],
+      "startingLineup": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "officials": [
+        {
+          "role": "C",
+          "name": "G. Jones"
+        },
+        {
+          "role": "AC",
+          "name": "H. Kent"
+        }
+      ]
+    },
+    {
+      "id": "maidenhead-mavericks",
+      "name": "Maidenhead Mavericks",
+      "players": [
+        {
+          "number": 21,
+          "name": "I. Lane",
+          "position": "Setter"
+        },
+        {
+          "number": 22,
+          "name": "J. Marsh",
+          "position": "Outside Hitter"
+        },
+        {
+          "number": 23,
+          "name": "K. Nash",
+          "position": "Middle Blocker"
+        },
+        {
+          "number": 24,
+          "name": "L. Owen",
+          "position": "Opposite"
+        },
+        {
+          "number": 25,
+          "name": "M. Pike",
+          "position": "Outside Hitter"
+        },
+        {
+          "number": 26,
+          "name": "N. Quinn",
+          "position": "Middle Blocker"
+        },
+        {
+          "number": 27,
+          "name": "O. Rose",
+          "position": "Setter"
+        },
+        {
+          "number": 28,
+          "name": "P. Shaw",
+          "position": "Outside Hitter"
+        },
+        {
+          "number": 29,
+          "name": "Q. Tate",
+          "position": "Middle Blocker"
+        },
+        {
+          "number": 30,
+          "name": "R. Voss",
+          "position": "Opposite"
+        },
+        {
+          "number": 31,
+          "name": "S. Wood",
+          "position": "Libero"
+        }
+      ],
+      "startingLineup": [
+        21,
+        22,
+        23,
+        24,
+        25,
+        26
+      ],
+      "officials": [
+        {
+          "role": "C",
+          "name": "T. Young"
+        },
+        {
+          "role": "T",
+          "name": "U. Zane"
+        }
+      ]
+    }
+  ]
+}

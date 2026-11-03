@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -5,6 +6,8 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../match_engine.dart';
 import '../models.dart';
+import '../scoresheet/scoresheet_publisher.dart';
+import 'sign_off_screen.dart';
 
 extension _TeamStyle on Team {
   Color get accent => this == Team.home ? Colors.blueAccent : Colors.redAccent;
@@ -91,13 +94,26 @@ class _MatchScreenState extends State<MatchScreen> {
           ),
           const SizedBox(width: 4),
 
-          // SERVICE ROUNDS (scoresheet-style view)
+          // SIGN-OFF: drawn signatures for captains, coaches and officials
           IconButton(
-            onPressed: () => _showServiceRoundsModal(context),
-            icon: const Icon(Icons.format_list_numbered, color: Colors.white70),
-            tooltip: 'Service rounds',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const SignOffScreen()),
+            ),
+            icon: const Icon(Icons.draw, color: Colors.white70),
+            tooltip: 'Sign-off (captains, coaches, officials)',
           ),
           const SizedBox(width: 4),
+
+          // DEBUG ONLY: publish the scoresheet right now with whatever has
+          // been recorded so far (not shown in release builds).
+          if (kDebugMode) ...[
+            IconButton(
+              onPressed: () => ScoresheetPublisher.publish(context, engine),
+              icon: const Icon(Icons.picture_as_pdf, color: Colors.lightBlueAccent),
+              tooltip: 'Debug: publish scoresheet now',
+            ),
+            const SizedBox(width: 4),
+          ],
 
           // RESET MATCH
           IconButton(
@@ -124,6 +140,20 @@ class _MatchScreenState extends State<MatchScreen> {
       ),
       body: Column(
         children: [
+          // Shown only if assets/demo/demo_data.json exists but has a mistake.
+          if (engine.demoDataError != null)
+            Container(
+              width: double.infinity,
+              color: Colors.orange[800],
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              child: Text(
+                'demo_data.json problem: ${engine.demoDataError} (using the built-in teams)',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white, fontSize: 12),
+              ),
+            ),
+
           // Scoreboard section
           Expanded(
             child: Stack(
@@ -131,13 +161,13 @@ class _MatchScreenState extends State<MatchScreen> {
                 Positioned.fill(
                   child: Row(
                     children: [
-                      Expanded(child: _buildTeamPanel(context, engine, Team.home)),
+                      Expanded(child: _buildTeamPanel(context, engine, engine.leftTeam)),
                       Container(width: 2, color: Colors.black),
-                      Expanded(child: _buildTeamPanel(context, engine, Team.away)),
+                      Expanded(child: _buildTeamPanel(context, engine, engine.rightTeam)),
                     ],
                   ),
                 ),
-                if (engine.needsFirstServe) _buildFirstServeOverlay(engine),
+                if (engine.needsSides || engine.needsFirstServe) _buildSetupOverlay(engine),
               ],
             ),
           ),
@@ -285,8 +315,15 @@ class _MatchScreenState extends State<MatchScreen> {
     );
   }
 
-  // --- FIRST SERVE CHOOSER (covers the scoreboard until a team is picked) ---
-  Widget _buildFirstServeOverlay(MatchEngine engine) {
+  // --- COIN TOSS: SIDES, THEN FIRST SERVE (covers the scoreboard) ---
+  // Only the first set and the deciding set ask. Every other set swaps sides
+  // and alternates the first serve by itself.
+  Widget _buildSetupOverlay(MatchEngine engine) {
+    final choosingSides = engine.needsSides;
+    final title = choosingSides
+        ? 'Set ${engine.currentSet}: which team is on the left?'
+        : 'Set ${engine.currentSet}: who serves first?';
+
     return Positioned.fill(
       child: Container(
         color: Colors.black87,
@@ -295,7 +332,7 @@ class _MatchScreenState extends State<MatchScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                'Set ${engine.currentSet}: who serves first?',
+                title,
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 22,
@@ -315,10 +352,16 @@ class _MatchScreenState extends State<MatchScreen> {
                       ),
                       onPressed: () {
                         HapticFeedback.mediumImpact();
-                        engine.chooseFirstServe(team);
+                        if (choosingSides) {
+                          engine.chooseSides(team);
+                        } else {
+                          engine.chooseFirstServe(team);
+                        }
                       },
                       child: Text(
-                        '${engine.sheetOf(team).teamName} serves',
+                        choosingSides
+                            ? '${engine.sheetOf(team).teamName} on the left'
+                            : '${engine.sheetOf(team).teamName} serves',
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 16,
@@ -352,15 +395,18 @@ class _MatchScreenState extends State<MatchScreen> {
 
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       isDismissible: false,
       enableDrag: false,
       backgroundColor: _sheetColor,
       shape: _sheetShape,
       builder: (modalContext) {
-        return Container(
-          padding: const EdgeInsets.all(24),
-          height: 230,
-          child: Column(
+        return SafeArea(
+          top: false,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
@@ -383,7 +429,14 @@ class _MatchScreenState extends State<MatchScreen> {
                     : 'Tap below to proceed to Set ${setNumber + 1}.',
                 style: const TextStyle(color: Colors.white70, fontSize: 13),
               ),
-              const Spacer(),
+              const SizedBox(height: 4),
+              TextButton.icon(
+                onPressed: () => ScoresheetPublisher.publish(modalContext, engine),
+                icon: const Icon(Icons.picture_as_pdf, size: 18),
+                label: Text(matchDone ? 'Publish final scoresheet (PDF)' : 'Publish scoresheet so far (PDF)'),
+                style: TextButton.styleFrom(foregroundColor: Colors.lightBlueAccent),
+              ),
+              const SizedBox(height: 12),
               Row(
                 children: [
                   Expanded(
@@ -420,6 +473,7 @@ class _MatchScreenState extends State<MatchScreen> {
               ),
             ],
           ),
+          ),
         );
       },
     );
@@ -434,13 +488,16 @@ class _MatchScreenState extends State<MatchScreen> {
 
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: _sheetColor,
       shape: _sheetShape,
       builder: (modalContext) {
-        return Container(
-          padding: const EdgeInsets.all(24),
-          height: 220,
-          child: Column(
+        return SafeArea(
+          top: false,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
@@ -461,7 +518,7 @@ class _MatchScreenState extends State<MatchScreen> {
                 'This will log the set score and reset timeouts, subs, and rotation for Set ${setNumber + 1}. You will choose who serves first.',
                 style: const TextStyle(color: Colors.white70, fontSize: 13),
               ),
-              const Spacer(),
+              const SizedBox(height: 12),
               Row(
                 children: [
                   Expanded(
@@ -493,6 +550,7 @@ class _MatchScreenState extends State<MatchScreen> {
               ),
             ],
           ),
+          ),
         );
       },
     );
@@ -503,13 +561,16 @@ class _MatchScreenState extends State<MatchScreen> {
     final engine = context.read<MatchEngine>();
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: _sheetColor,
       shape: _sheetShape,
       builder: (modalContext) {
-        return Container(
-          padding: const EdgeInsets.all(24),
-          height: 200,
-          child: Column(
+        return SafeArea(
+          top: false,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
@@ -525,7 +586,7 @@ class _MatchScreenState extends State<MatchScreen> {
                 'This will wipe all scores, sets, timeouts, substitutions, and undo history back to zero.',
                 style: TextStyle(color: Colors.white70, fontSize: 13),
               ),
-              const Spacer(),
+              const SizedBox(height: 12),
               Row(
                 children: [
                   Expanded(
@@ -554,13 +615,14 @@ class _MatchScreenState extends State<MatchScreen> {
               ),
             ],
           ),
+          ),
         );
       },
     );
   }
 
-  // --- SERVICE ROUNDS (paper-sheet style view of the current set) ---
-  void _showServiceRoundsModal(BuildContext context) {
+  // --- TIMEOUT MODAL ---
+  void _showTimeoutModal(BuildContext context) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -569,103 +631,12 @@ class _MatchScreenState extends State<MatchScreen> {
       builder: (modalContext) {
         final engine = modalContext.watch<MatchEngine>();
 
-        return Container(
-          padding: const EdgeInsets.all(20),
-          height: MediaQuery.of(modalContext).size.height * 0.85,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Service rounds — Set ${engine.currentSet}',
-                style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 4),
-              const Text(
-                "Each number is the team's score when its service round ended. Highlighted = in progress.",
-                style: TextStyle(color: Colors.white54, fontSize: 12),
-              ),
-              const SizedBox(height: 12),
-              Expanded(
-                child: SingleChildScrollView(
-                  child: Column(
-                    children: [
-                      for (final team in Team.values) _buildServiceTeamBlock(engine, team),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildServiceTeamBlock(MatchEngine engine, Team team) {
-    final sheet = engine.sheetOf(team);
-    final rounds = engine.serviceRoundsFor(team);
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            sheet.teamName.toUpperCase(),
-            style: TextStyle(color: team.accent, fontWeight: FontWeight.bold, letterSpacing: 1.2),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (var slot = 0; slot < 6; slot++)
-                Expanded(
-                  child: Column(
-                    children: [
-                      Text(
-                        '${ServiceRound.romanNumerals[slot]}  #${sheet.startingLineup[slot]}',
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const Divider(height: 10, color: Colors.white24),
-                      for (final r in rounds.where((r) => r.position == slot + 1))
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 2),
-                          child: Text(
-                            '${r.endOwn}',
-                            style: TextStyle(
-                              color: r.isOpen ? team.accent : Colors.white,
-                              fontSize: 16,
-                              fontWeight: r.isOpen ? FontWeight.bold : FontWeight.normal,
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  // --- TIMEOUT MODAL ---
-  void _showTimeoutModal(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: _sheetColor,
-      shape: _sheetShape,
-      builder: (modalContext) {
-        final engine = modalContext.watch<MatchEngine>();
-
-        return Container(
-          padding: const EdgeInsets.all(24),
-          height: 200,
-          child: Column(
+        return SafeArea(
+          top: false,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
@@ -677,7 +648,7 @@ class _MatchScreenState extends State<MatchScreen> {
                 'Select team taking the time-out:',
                 style: TextStyle(color: Colors.white70, fontSize: 14),
               ),
-              const Spacer(),
+              const SizedBox(height: 12),
               Row(
                 children: [
                   for (final team in Team.values) ...[
@@ -708,8 +679,9 @@ class _MatchScreenState extends State<MatchScreen> {
                   ],
                 ],
               ),
-              const Spacer(),
+              const SizedBox(height: 12),
             ],
+          ),
           ),
         );
       },
@@ -720,15 +692,18 @@ class _MatchScreenState extends State<MatchScreen> {
   void _showSubTeamModal(BuildContext context) {
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: _sheetColor,
       shape: _sheetShape,
       builder: (modalContext) {
         final engine = modalContext.watch<MatchEngine>();
 
-        return Container(
-          padding: const EdgeInsets.all(24),
-          height: 200,
-          child: Column(
+        return SafeArea(
+          top: false,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
@@ -740,7 +715,7 @@ class _MatchScreenState extends State<MatchScreen> {
                 'Select team making a substitution:',
                 style: TextStyle(color: Colors.white70, fontSize: 14),
               ),
-              const Spacer(),
+              const SizedBox(height: 12),
               Row(
                 children: [
                   for (final team in Team.values) ...[
@@ -771,8 +746,9 @@ class _MatchScreenState extends State<MatchScreen> {
                   ],
                 ],
               ),
-              const Spacer(),
+              const SizedBox(height: 12),
             ],
+          ),
           ),
         );
       },
@@ -790,7 +766,9 @@ class _MatchScreenState extends State<MatchScreen> {
         final engine = modalContext.watch<MatchEngine>();
         final onCourt = engine.getOnCourtPlayers(team);
 
-        return Container(
+        return SafeArea(
+          top: false,
+          child: Container(
           padding: const EdgeInsets.all(24),
           height: 280,
           child: Column(
@@ -872,6 +850,7 @@ class _MatchScreenState extends State<MatchScreen> {
               ),
             ],
           ),
+        ),
         );
       },
     );
@@ -889,13 +868,16 @@ class _MatchScreenState extends State<MatchScreen> {
 
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: _sheetColor,
       shape: _sheetShape,
       builder: (modalContext) {
-        return Container(
-          padding: const EdgeInsets.all(24),
-          height: 220,
-          child: Column(
+        return SafeArea(
+          top: false,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
@@ -917,7 +899,7 @@ class _MatchScreenState extends State<MatchScreen> {
                 'Subbing off #${playerOff.number} (${playerOff.name}). Original starter #${lockedPlayerOn.number} (${lockedPlayerOn.name}) will automatically re-enter.',
                 style: const TextStyle(color: Colors.white70, fontSize: 13),
               ),
-              const Spacer(),
+              const SizedBox(height: 12),
               Row(
                 children: [
                   Expanded(
@@ -949,6 +931,7 @@ class _MatchScreenState extends State<MatchScreen> {
               ),
             ],
           ),
+          ),
         );
       },
     );
@@ -965,7 +948,9 @@ class _MatchScreenState extends State<MatchScreen> {
         final engine = modalContext.watch<MatchEngine>();
         final bench = engine.getEligibleBenchPlayers(team, playerOffNum);
 
-        return Container(
+        return SafeArea(
+          top: false,
+          child: Container(
           padding: const EdgeInsets.all(24),
           height: 280,
           child: Column(
@@ -1025,6 +1010,7 @@ class _MatchScreenState extends State<MatchScreen> {
               ),
             ],
           ),
+        ),
         );
       },
     );

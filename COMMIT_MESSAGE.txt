@@ -1,0 +1,84 @@
+feat: event-sourced engine, BVA scoresheet PDF, sign-off and demo data
+
+Rebuilds the scoring engine around a list of events and adds everything
+needed to produce a filled-in BVA 3-set scoresheet from a match.
+
+Engine (lib/match_engine.dart)
+- Rewrite as event-sourced: the match is a list of events (sides, first
+  serve, point, time-out, sub, new set) and all state is derived by
+  replaying it. Undo is "remove the last event and replay", which also
+  fixes undoing a new set (previously scores and line-ups stayed reset).
+- Persist as one JSON value (format, events, signatures, team
+  fingerprint) after every event; the screen updates before the save.
+  Storage key is now spikescore_match_v4, so matches saved by older
+  builds are ignored.
+- Replace "Home"/"Away" strings with a Team enum.
+- Track the serving team, rotation, next server and service rounds,
+  including the point total at which each round closed.
+- Enforce substitution rules in the engine, not just the UI: 6 per set,
+  each starting position twice, only the original starter returns, and
+  no subbing in a player who is already paired.
+- Coin toss: sides and first serve are chosen in set 1 and the deciding
+  set. Other sets swap sides and alternate the first serve automatically.
+  In the deciding set the teams change ends at 8 points.
+- End Set only when the set is complete; cannot advance past the match.
+- Debug builds print one line per finished service round, for example
+  "[service] Set 1 Home I #1: 3".
+
+Table screen (lib/screens/match_screen.dart)
+- One team-panel builder; the scoreboard follows the chosen sides and
+  shows the serving team and "Next server".
+- Coin-toss prompt (sides, then first serve) only when one is needed.
+- Bottom sheets are content-sized, scrollable and kept clear of system
+  bars, to stop overflow and overlap with the gesture bar.
+- Match format menu is locked once the match has started.
+- New buttons: sign-off (pen icon), publish scoresheet on the set and
+  match complete sheet, and a debug-only publish button in the app bar.
+- Orange banner if the demo data file has a mistake.
+
+Scoresheet PDF (lib/scoresheet/, assets/scoresheet/)
+- Draws the match onto the real BVA 3-set sheet: the blank sheet is
+  embedded as a JPEG and box positions were measured from the original
+  PDF (bva_3set_layout.json).
+- Fills in header details, team names and A/B letters, player lists and
+  liberos, team officials, line-ups in service order, S/R markers,
+  substitutions with the score at change, time-outs with the score,
+  service rounds, points (slash each point, ring the last, strike out
+  unused numbers), the change-of-ends block in set 3, the results table,
+  the winner and the signatures. Anything unknown is left blank.
+- Team A is the team that started set 1 on the left.
+- Shared through the system share sheet (printing package).
+- 3-set format only.
+
+Sign-off (lib/screens/sign_off_screen.dart)
+- Finger-drawn signatures for captains, coaches, referees, scorers and
+  line judges. Stored with the match and drawn as vector strokes in the
+  PDF. Reset Match clears them.
+
+Demo data (assets/demo/demo_data.json, lib/demo_data.dart)
+- One editable file holds a library of made-up teams, rosters, officials
+  and the match details for the sheet header, and says which two teams
+  play. A saved match is dropped if the teams change, and a faulty file
+  falls back to the built-in teams.
+
+Tests
+- Engine: scoring, serving and rotation, sides and first-serve order,
+  substitutions, time-outs, service rounds, debug log, persistence,
+  signatures.
+- Scoresheet: the data builder (including the change of ends) and PDF
+  generation with and without signatures and match details.
+- Demo data: parser rules, plus validation of the shipped file.
+
+Dependencies and assets
+- Add pdf and printing.
+- Register assets/scoresheet/ and assets/demo/ in pubspec.yaml.
+
+Docs
+- Rewrite README for the Flutter app (it described the original C# and
+  Blazor plan).
+
+Known limitations
+- Not yet validated against paper at a real match; check a printed copy
+  of the PDF.
+- No time-out timer, sanctions, set start/end times, or in-app entry of
+  teams and match details yet. The PDF supports the 3-set format only.
