@@ -7,7 +7,18 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import '../match_engine.dart';
 import '../models.dart';
 import '../scoresheet/scoresheet_publisher.dart';
+import 'notes_screen.dart';
 import 'sign_off_screen.dart';
+
+enum _MenuAction {
+  notes,
+  signOff,
+  formatLocal,
+  formatNational,
+  endSet,
+  debugPublish,
+  reset,
+}
 
 extension _TeamStyle on Team {
   Color get accent => this == Team.home ? Colors.blueAccent : Colors.redAccent;
@@ -56,6 +67,55 @@ class _MatchScreenState extends State<MatchScreen> {
     super.dispose();
   }
 
+  PopupMenuItem<_MenuAction> _menuItem(
+    _MenuAction action,
+    IconData icon,
+    String label, {
+    bool enabled = true,
+    bool danger = false,
+  }) {
+    final color = !enabled
+        ? Colors.white24
+        : (danger ? Colors.redAccent : null);
+    return PopupMenuItem<_MenuAction>(
+      value: action,
+      enabled: enabled,
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: color),
+          const SizedBox(width: 12),
+          Flexible(child: Text(label, style: TextStyle(color: color))),
+        ],
+      ),
+    );
+  }
+
+  void _onMenu(_MenuAction action, MatchEngine engine) {
+    switch (action) {
+      case _MenuAction.notes:
+        Navigator.of(context).push(MaterialPageRoute(builder: (_) => const NotesScreen()));
+        break;
+      case _MenuAction.signOff:
+        Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SignOffScreen()));
+        break;
+      case _MenuAction.formatLocal:
+        engine.setMatchMode(MatchMode.localLeague3Set);
+        break;
+      case _MenuAction.formatNational:
+        engine.setMatchMode(MatchMode.nationalLeague5Set);
+        break;
+      case _MenuAction.endSet:
+        _showNewSetConfirmationModal(context);
+        break;
+      case _MenuAction.debugPublish:
+        ScoresheetPublisher.publish(context, engine);
+        break;
+      case _MenuAction.reset:
+        _showResetConfirmationModal(context);
+        break;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final engine = context.watch<MatchEngine>();
@@ -70,72 +130,54 @@ class _MatchScreenState extends State<MatchScreen> {
         backgroundColor: const Color(0xFF1E1E1E),
         elevation: 0,
         actions: [
-          // MODE SWITCHER (locked once the match has started)
-          PopupMenuButton<MatchMode>(
-            enabled: !engine.matchStarted,
-            icon: Icon(
-              Icons.settings,
-              color: engine.matchStarted ? Colors.white24 : Colors.white70,
+          // One button for everything that used to crowd the top bar. A dot
+          // appears on it when a set is finished and "End set" is available.
+          PopupMenuButton<_MenuAction>(
+            tooltip: 'Menu',
+            icon: Badge(
+              isLabelVisible: engine.isSetComplete && !engine.isMatchComplete,
+              smallSize: 10,
+              child: const Icon(Icons.menu, color: Colors.white70),
             ),
-            tooltip: 'Match Format',
-            onSelected: (MatchMode mode) {
-              engine.setMatchMode(mode);
-            },
-            itemBuilder: (context) => const [
-              PopupMenuItem(
-                value: MatchMode.localLeague3Set,
-                child: Text('Local League (3 Sets, Set 3 to 15)'),
+            onSelected: (action) => _onMenu(action, engine),
+            itemBuilder: (context) => [
+              _menuItem(_MenuAction.notes, Icons.edit_note, 'Notes'),
+              _menuItem(_MenuAction.signOff, Icons.draw, 'Sign-off (captains, officials)'),
+              const PopupMenuDivider(),
+              _menuItem(
+                _MenuAction.formatLocal,
+                engine.matchMode == MatchMode.localLeague3Set
+                    ? Icons.check_box
+                    : Icons.check_box_outline_blank,
+                'Local league (3 sets, set 3 to 15)',
+                enabled: !engine.matchStarted,
               ),
-              PopupMenuItem(
-                value: MatchMode.nationalLeague5Set,
-                child: Text('National League (5 Sets, Set 5 to 15)'),
+              _menuItem(
+                _MenuAction.formatNational,
+                engine.matchMode == MatchMode.nationalLeague5Set
+                    ? Icons.check_box
+                    : Icons.check_box_outline_blank,
+                'National league (5 sets, set 5 to 15)',
+                enabled: !engine.matchStarted,
               ),
+              const PopupMenuDivider(),
+              _menuItem(
+                _MenuAction.endSet,
+                Icons.flag,
+                'End set',
+                enabled: engine.isSetComplete && !engine.isMatchComplete,
+              ),
+              if (kDebugMode)
+                _menuItem(
+                  _MenuAction.debugPublish,
+                  Icons.picture_as_pdf,
+                  'Debug: publish scoresheet now',
+                ),
+              const PopupMenuDivider(),
+              _menuItem(_MenuAction.reset, Icons.refresh, 'Reset match', danger: true),
             ],
           ),
           const SizedBox(width: 4),
-
-          // SIGN-OFF: drawn signatures for captains, coaches and officials
-          IconButton(
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const SignOffScreen()),
-            ),
-            icon: const Icon(Icons.draw, color: Colors.white70),
-            tooltip: 'Sign-off (captains, coaches, officials)',
-          ),
-          const SizedBox(width: 4),
-
-          // DEBUG ONLY: publish the scoresheet right now with whatever has
-          // been recorded so far (not shown in release builds).
-          if (kDebugMode) ...[
-            IconButton(
-              onPressed: () => ScoresheetPublisher.publish(context, engine),
-              icon: const Icon(Icons.picture_as_pdf, color: Colors.lightBlueAccent),
-              tooltip: 'Debug: publish scoresheet now',
-            ),
-            const SizedBox(width: 4),
-          ],
-
-          // RESET MATCH
-          IconButton(
-            onPressed: () => _showResetConfirmationModal(context),
-            icon: const Icon(Icons.refresh, color: Colors.redAccent),
-            tooltip: 'Reset Match',
-          ),
-          const SizedBox(width: 4),
-
-          // END SET (only once the set is actually complete)
-          TextButton.icon(
-            onPressed: (engine.isSetComplete && !engine.isMatchComplete)
-                ? () => _showNewSetConfirmationModal(context)
-                : null,
-            icon: const Icon(Icons.flag),
-            label: const Text('End Set', style: TextStyle(fontWeight: FontWeight.bold)),
-            style: TextButton.styleFrom(
-              foregroundColor: Colors.amberAccent,
-              disabledForegroundColor: Colors.white24,
-            ),
-          ),
-          const SizedBox(width: 8),
         ],
       ),
       body: Column(

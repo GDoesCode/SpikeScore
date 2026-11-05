@@ -259,6 +259,9 @@ class SheetLayout {
 
   final OfficialsLayout officials;
 
+  /// The ruled lines of the REMARKS box. Each row is [x0, x1, bottom].
+  final List<List<double>> remarksRows;
+
   SheetLayout({
     required this.pageWidth,
     required this.pageHeight,
@@ -269,6 +272,7 @@ class SheetLayout {
     required this.signatures,
     required this.matchInfo,
     required this.officials,
+    required this.remarksRows,
   });
 
   BlockLayout block(String name) => blocks[name]!;
@@ -290,6 +294,9 @@ class SheetLayout {
       matchInfo: (j['matchInfo'] as Map<String, dynamic>)
           .map((k, v) => MapEntry(k, _nums(v))),
       officials: OfficialsLayout.fromJson(j['officials'] as Map<String, dynamic>),
+      remarksRows: ((j['remarks'] as Map<String, dynamic>)['rows'] as List)
+          .map(_nums)
+          .toList(),
     );
   }
 }

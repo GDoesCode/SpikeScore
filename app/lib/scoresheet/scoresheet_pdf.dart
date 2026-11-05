@@ -7,6 +7,7 @@ import '../models.dart';
 import '../demo_data.dart' show Official;
 import 'scoresheet_data.dart';
 import 'scoresheet_layout.dart';
+import 'remarks_text.dart';
 import 'signature_slots.dart';
 
 /// Draws a match onto the blank BVA 3-set scoresheet.
@@ -432,6 +433,26 @@ class _Painter {
     _drawSignatures(data);
     _drawMatchInfo(data);
     _drawOfficials(data);
+    _drawRemarks(data);
+  }
+
+  // ------------------------------------------------------------------ remarks
+  /// Writes the notes on the six ruled lines of the REMARKS box.
+  void _drawRemarks(ScoresheetData data) {
+    if (data.notes.trim().isEmpty) return;
+    const pad = 1.5;
+    final rows = layout.remarksRows;
+    final widths = [for (final r in rows) r[1] - r[0] - 2 * pad];
+
+    final fit = fitRemarks(
+      data.notes,
+      widths,
+      (s, size) => _width(_clean(s), false, size),
+    );
+    for (var i = 0; i < fit.lines.length && i < rows.length; i++) {
+      // Text sits just above the ruled line at the bottom of its row.
+      _text(fit.lines[i], rows[i][0] + pad, rows[i][2] - 1.9, fit.size);
+    }
   }
 
   // ------------------------------------------------- match details + officials

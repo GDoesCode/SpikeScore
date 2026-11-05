@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+// Adjust these paths if your test folder isn't next to lib/.
 import 'package:spikescore/demo_data.dart';
 import 'package:spikescore/match_engine.dart';
 import 'package:spikescore/models.dart';

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+// Adjust these paths if your test folder isn't next to lib/.
 import 'package:spikescore/demo_data.dart';
 import 'package:spikescore/match_engine.dart';
 import 'package:spikescore/scoresheet/scoresheet_data.dart';
@@ -327,6 +328,50 @@ void main() {
         layoutJson: layoutFile.readAsStringSync(),
       );
       expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
+    });
+
+    test('builds a PDF with notes, however long', () async {
+      final e = await newEngine();
+      await playSet(e, winner: Team.home);
+
+      for (final notes in [
+        'Junior player #7 D. Evans (U16)',
+        'Line one\n\nLine three, after a blank line',
+        'A very long report. ' * 120,
+        'x' * 800,
+      ]) {
+        await e.setNotes(notes);
+        final bytes = await ScoresheetPdf.build(
+          ScoresheetData.fromEngine(e),
+          background: backgroundFile.readAsBytesSync(),
+          layoutJson: layoutFile.readAsStringSync(),
+        );
+        expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
+      }
+      expect(ScoresheetData.fromEngine(e).notes, 'x' * 800);
+    });
+
+    test('builds a PDF with notes: short, long, and with odd characters', () async {
+      final notes = [
+        'Junior player: #7 D. Evans (U16)',
+        'Set 2 delayed. ' * 80, // far too long for the box
+        'Zoë Müller, naïve café, 日本語, tab\there\r\nnext line',
+        '   \n  ', // blank
+      ];
+      for (final text in notes) {
+        final e = await newEngine();
+        await playSet(e, winner: Team.home);
+        await e.setNotes(text);
+
+        final data = ScoresheetData.fromEngine(e);
+        expect(data.notes, text);
+        final bytes = await ScoresheetPdf.build(
+          data,
+          background: backgroundFile.readAsBytesSync(),
+          layoutJson: layoutFile.readAsStringSync(),
+        );
+        expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
+      }
     });
 
     test('the publisher loads the bundled assets (checks pubspec)', () async {

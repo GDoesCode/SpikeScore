@@ -236,6 +236,8 @@ class MatchEngine extends ChangeNotifier {
   /// Width / height of the signature pad. Strokes are stored relative to it.
   static const double signaturePadAspect = 4.0;
 
+  String _notes = '';
+
   late TeamSheet homeTeamSheet;
   late TeamSheet awayTeamSheet;
 
@@ -406,8 +408,11 @@ class MatchEngine extends ChangeNotifier {
     }
 
     _signatures.clear();
+    _notes = '';
     try {
       final data = jsonDecode(raw) as Map<String, dynamic>;
+      final savedNotes = data['notes'];
+      if (savedNotes is String) _notes = savedNotes;
       final saved = data['signatures'];
       if (saved is Map<String, dynamic>) {
         saved.forEach((id, strokes) {
@@ -433,6 +438,7 @@ class MatchEngine extends ChangeNotifier {
         'teams': _teamsKey(),
         'events': _events.map((e) => e.toJson()).toList(),
         'signatures': _signatures,
+        'notes': _notes,
       }),
     );
   }
@@ -720,6 +726,16 @@ class MatchEngine extends ChangeNotifier {
   /// Everything that has happened so far, in order (read-only).
   List<MatchEvent> get events => List.unmodifiable(_events);
 
+  /// Free-text notes from the Notes screen (printed in the REMARKS box).
+  String get notes => _notes;
+
+  /// Saves the notes. Nothing on screen depends on them, so listeners are not
+  /// told; that keeps this safe to call while a screen is closing.
+  Future<void> setNotes(String text) async {
+    _notes = text;
+    await _save();
+  }
+
   /// Drawn signatures collected on the sign-off screen, by slot id.
   Map<String, List<List<List<double>>>> get signatures =>
       Map.unmodifiable(_signatures);
@@ -845,6 +861,7 @@ class MatchEngine extends ChangeNotifier {
   Future<void> resetMatch() async {
     _events.clear();
     _signatures.clear();
+    _notes = '';
     _s = _replay();
     notifyListeners();
     await _save();

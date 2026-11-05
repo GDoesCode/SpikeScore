@@ -102,6 +102,9 @@ class ScoresheetData {
   /// Coaches and other officials per team.
   final Map<Team, List<Official>> officials;
 
+  /// Free-text notes from the Notes screen, printed in the REMARKS box.
+  final String notes;
+
   const ScoresheetData({
     required this.teamA,
     required this.teams,
@@ -112,6 +115,7 @@ class ScoresheetData {
     required this.signatures,
     required this.info,
     required this.officials,
+    required this.notes,
   });
 
   /// The BVA sheet in the app is the 3-set one, so only the 3-set format fits.
@@ -257,6 +261,7 @@ class ScoresheetData {
       signatures: engine.signatures,
       info: engine.matchInfo,
       officials: engine.officials,
+      notes: engine.notes,
     );
   }
 }

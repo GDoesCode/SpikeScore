@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+// Adjust these paths if your test folder isn't next to lib/.
 import 'package:spikescore/match_engine.dart';
 import 'package:spikescore/models.dart';
 
@@ -707,6 +708,97 @@ void main() {
     test('they do not lock the match format', () async {
       final e = await newEngine();
       await e.setSignature('ref1', ink);
+      expect(e.matchStarted, isFalse);
+    });
+  });
+
+  group('notes', () {
+    test('start empty and can be saved and replaced', () async {
+      final e = await newEngine();
+      expect(e.notes, '');
+
+      await e.setNotes('Junior player #7');
+      expect(e.notes, 'Junior player #7');
+
+      await e.setNotes('Junior player #7, set 2 delayed');
+      expect(e.notes, 'Junior player #7, set 2 delayed');
+    });
+
+    test('survive a restart', () async {
+      final a = await newEngine();
+      await a.setNotes('Line 1\nLine 2');
+
+      final b = await newEngine();
+      expect(b.notes, 'Line 1\nLine 2');
+    });
+
+    test('do not notify listeners, so closing the screen is safe', () async {
+      final e = await newEngine();
+      var calls = 0;
+      e.addListener(() => calls++);
+      await e.setNotes('quiet');
+      expect(calls, 0);
+    });
+
+    test('undo leaves them alone, reset clears them', () async {
+      final e = await newEngine();
+      await e.chooseFirstServe(Team.home);
+      await e.setNotes('keep me');
+
+      await e.undo();
+      expect(e.notes, 'keep me');
+
+      await e.resetMatch();
+      expect(e.notes, '');
+      expect((await newEngine()).notes, '');
+    });
+
+    test('they do not lock the match format', () async {
+      final e = await newEngine();
+      await e.setNotes('hello');
+      expect(e.matchStarted, isFalse);
+    });
+  });
+
+  group('notes', () {
+    test('start empty and can be changed', () async {
+      final e = await newEngine();
+      expect(e.notes, '');
+      await e.setNotes('Junior #7 D. Evans');
+      expect(e.notes, 'Junior #7 D. Evans');
+    });
+
+    test('survive a restart', () async {
+      final a = await newEngine();
+      await a.setNotes('Set 2 delayed 5 minutes');
+
+      final b = await newEngine();
+      expect(b.notes, 'Set 2 delayed 5 minutes');
+    });
+
+    test('are not touched by undo, and reset clears them', () async {
+      final e = await newEngine();
+      await e.chooseFirstServe(Team.home);
+      await e.setNotes('keep me');
+      await e.undo();
+      expect(e.notes, 'keep me');
+
+      await e.resetMatch();
+      expect(e.notes, '');
+      expect((await newEngine()).notes, '');
+    });
+
+    test('do not rebuild the screen (safe to save while a page closes)', () async {
+      final e = await newEngine();
+      var calls = 0;
+      e.addListener(() => calls++);
+      await e.setNotes('quiet');
+      expect(calls, 0);
+    });
+
+    test('do not lock the match format', () async {
+      final e = await newEngine();
+      await e.setNotes('hello');
       expect(e.matchStarted, isFalse);
     });
   });
