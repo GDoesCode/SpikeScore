@@ -39,6 +39,7 @@ dependencies:
   cupertino_icons: ^2.0.0
   pdf: ^3.13.1
   printing: ^5.15.1
+  material_ui: ^1.11.1
 
 dev_dependencies:
   flutter_test:
