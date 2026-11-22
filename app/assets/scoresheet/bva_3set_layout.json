@@ -4696,7 +4696,14 @@
    449.3,
    625.5,
    457.7
-  ]
+  ],
+    "setDurationX": [557.5, 582.5],
+    "totalSetDurationX": [569.6, 585.8],
+    "timeBaselineY": 440.5,
+    "startColonX": 517.2,
+    "endColonX": 564.75,
+    "durationHoursRightX": 601.8,
+    "durationMinutesRightX": 618.6
  },
  "signatures": {
   "ref1": [

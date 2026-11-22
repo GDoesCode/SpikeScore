@@ -28,13 +28,24 @@ class MatchEvent {
   final int? playerOff;
   final int? playerOn;
 
-  const MatchEvent(this.type, {this.team, this.playerOff, this.playerOn});
+  /// When the event was recorded (the phone's local time). Null for events
+  /// saved by older versions of the app. The scoresheet uses it for the match
+  /// start and end times and the set durations.
+  final DateTime? at;
+
+  const MatchEvent(this.type,
+      {this.team, this.playerOff, this.playerOn, this.at});
+
+  /// The same event, stamped with the time it was recorded.
+  MatchEvent stamped(DateTime time) => MatchEvent(type,
+      team: team, playerOff: playerOff, playerOn: playerOn, at: time);
 
   Map<String, dynamic> toJson() => {
         'type': type.name,
         if (team != null) 'team': team!.name,
         if (playerOff != null) 'off': playerOff,
         if (playerOn != null) 'on': playerOn,
+        if (at != null) 'at': at!.millisecondsSinceEpoch,
       };
 
   factory MatchEvent.fromJson(Map<String, dynamic> json) => MatchEvent(
@@ -44,6 +55,9 @@ class MatchEvent {
             : Team.values.byName(json['team'] as String),
         playerOff: json['off'] as int?,
         playerOn: json['on'] as int?,
+        at: json['at'] is int
+            ? DateTime.fromMillisecondsSinceEpoch(json['at'] as int)
+            : null,
       );
 }
 
@@ -255,15 +269,20 @@ class MatchEngine extends ChangeNotifier {
   /// it so a typo in the file isn't silently ignored.
   String? demoDataError;
 
+  /// Where event times come from. Tests replace it with a fake clock.
+  final DateTime Function() _clock;
+
   /// Pass [prefs] to load synchronously (tests, or if you await
   /// SharedPreferences.getInstance() in main). Without it the engine loads
   /// in the background and is usable immediately. [homeTeam] and [awayTeam]
-  /// replace the built-in teams (used by tests).
+  /// replace the built-in teams (used by tests). [clock] stamps each recorded
+  /// event (default: the phone's clock).
   MatchEngine({
     SharedPreferences? prefs,
     TeamSheet? homeTeam,
     TeamSheet? awayTeam,
-  }) {
+    DateTime Function()? clock,
+  }) : _clock = clock ?? DateTime.now {
     _prefs = prefs;
     _initDefaultTeams();
     if (homeTeam != null) homeTeamSheet = homeTeam;
@@ -449,7 +468,7 @@ class MatchEngine extends ChangeNotifier {
   /// new score.
   Future<void> _record(MatchEvent event) async {
     final closedBefore = _closedRoundCount();
-    _events.add(event);
+    _events.add(event.at == null ? event.stamped(_clock()) : event);
     _s = _replay();
     _logClosedRounds(closedBefore);
     notifyListeners();

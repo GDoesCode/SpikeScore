@@ -632,6 +632,50 @@ class _Painter {
     }
   }
 
+  /// Set durations in the "SET (Duration)" column, their total, and the match
+  /// starting time, ending time and total duration under them.
+  void _drawTimes(ScoresheetData data) {
+    final r = layout.results;
+
+    final dx = r.setDurationX;
+    if (dx != null) {
+      for (final sd in data.sets) {
+        final i = sd.number - 1;
+        final minutes = sd.durationMinutes;
+        if (i > 2 || minutes == null) continue;
+        final row = r.setRows[i];
+        _textInBox('$minutes', [dx[0], row[0], dx[1], row[1]], 7.0);
+      }
+    }
+
+    final tx = r.totalSetDurationX;
+    final total = data.totalSetMinutes;
+    if (tx != null && total != null) {
+      _textInBox('$total', [tx[0], r.totalRow[0], tx[1], r.totalRow[1]], 6.5,
+          isBold: true);
+    }
+
+    final y = r.timeBaselineY;
+    if (y == null) return;
+    const size = 8.0;
+
+    void clock(DateTime? t, double? colonX) {
+      if (t == null || colonX == null) return;
+      _text('${t.hour}', colonX - 1.8, y, size, align: _Align.right);
+      _text(_two(t.minute), colonX + 1.8, y, size);
+    }
+
+    clock(data.matchStart, r.startColonX);
+    clock(data.matchEnd, r.endColonX);
+
+    final minutes = data.matchDurationMinutes;
+    final hx = r.durationHoursRightX, mx = r.durationMinutesRightX;
+    if (minutes != null && hx != null && mx != null) {
+      _text('${minutes ~/ 60}', hx, y, size, align: _Align.right);
+      _text(_two(minutes % 60), mx, y, size, align: _Align.right);
+    }
+  }
+
   void _drawResults(ScoresheetData data) {
     final r = layout.results;
     final t = data.teams;
@@ -673,6 +717,8 @@ class _Painter {
             isBold: true);
       });
     }
+
+    _drawTimes(data);
 
     final winner = data.winner;
     if (data.matchComplete && winner != null) {

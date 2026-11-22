@@ -77,7 +77,26 @@ class SheetSet {
   final Map<Team, List<SheetSub>> subs = {Team.home: [], Team.away: []};
   final Map<Team, List<SheetRound>> rounds = {Team.home: [], Team.away: []};
 
+  /// When the first rally of the set was scored, and when the set was won.
+  /// Null if unknown (not played yet, or recorded by an older app version).
+  DateTime? start;
+  DateTime? end;
+
+  /// Minutes the set lasted, or null until it is over.
+  int? get durationMinutes =>
+      (start == null || end == null) ? null : minutesBetween(start!, end!);
+
   SheetSet(this.number);
+}
+
+/// Whole minutes between two clock times, counted the way the times are
+/// written on the sheet (hours and minutes, seconds ignored), so a duration
+/// always matches the start and end times printed next to it.
+int minutesBetween(DateTime from, DateTime to) {
+  DateTime toMinute(DateTime t) =>
+      DateTime(t.year, t.month, t.day, t.hour, t.minute);
+  final m = toMinute(to).difference(toMinute(from)).inMinutes;
+  return m < 0 ? 0 : m;
 }
 
 class ScoresheetData {
@@ -104,6 +123,27 @@ class ScoresheetData {
 
   /// Free-text notes from the Notes screen, printed in the REMARKS box.
   final String notes;
+
+  /// When the first rally of the match was scored. Null before that.
+  DateTime? get matchStart => sets.isEmpty ? null : sets.first.start;
+
+  /// When the last rally of the match was won. Null until the match is over.
+  DateTime? get matchEnd => matchComplete ? sets.last.end : null;
+
+  /// Minutes from the match start to the match end, or null until it's over.
+  int? get matchDurationMinutes {
+    final from = matchStart, to = matchEnd;
+    return (from == null || to == null) ? null : minutesBetween(from, to);
+  }
+
+  /// The sum of the finished sets' durations, or null if none is known.
+  int? get totalSetMinutes {
+    final known = [
+      for (final s in sets)
+        if (s.durationMinutes != null) s.durationMinutes!
+    ];
+    return known.isEmpty ? null : known.reduce((a, b) => a + b);
+  }
 
   const ScoresheetData({
     required this.teamA,
@@ -156,6 +196,8 @@ class ScoresheetData {
 
         case EventType.point:
           {
+            // The set's clock starts with its first rally.
+            cur.start ??= e.at;
             score[team!] = score[team]! + 1;
             final home = score[Team.home]!;
             final away = score[Team.away]!;
@@ -175,6 +217,8 @@ class ScoresheetData {
               cur.complete = true;
               cur.winner = home > away ? Team.home : Team.away;
             }
+            // The set's clock stops with the winning rally.
+            if (cur.complete) cur.end ??= e.at;
             break;
           }
 
