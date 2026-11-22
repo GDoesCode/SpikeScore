@@ -273,6 +273,19 @@ class HeaderLayout {
       );
 }
 
+/// The START time and END time boxes of one set: the printed colons the hours
+/// and minutes sit either side of, and the text baseline.
+class SetTimesLayout {
+  final double startColonX, endColonX, baselineY;
+  const SetTimesLayout(this.startColonX, this.endColonX, this.baselineY);
+
+  factory SetTimesLayout.fromJson(Map<String, dynamic> j) => SetTimesLayout(
+        (j['startColonX'] as num).toDouble(),
+        (j['endColonX'] as num).toDouble(),
+        (j['baselineY'] as num).toDouble(),
+      );
+}
+
 class SheetLayout {
   final double pageWidth, pageHeight;
   final Map<String, BlockLayout> blocks;
@@ -293,6 +306,10 @@ class SheetLayout {
   /// The ruled lines of the REMARKS box. Each row is [x0, x1, bottom].
   final List<List<double>> remarksRows;
 
+  /// Set number -> where the START time and END time go at the top of that
+  /// set's blocks. Empty if the layout file doesn't have them.
+  final Map<int, SetTimesLayout> setTimes;
+
   SheetLayout({
     required this.pageWidth,
     required this.pageHeight,
@@ -304,6 +321,7 @@ class SheetLayout {
     required this.matchInfo,
     required this.officials,
     required this.remarksRows,
+    this.setTimes = const {},
   });
 
   BlockLayout block(String name) => blocks[name]!;
@@ -328,6 +346,10 @@ class SheetLayout {
       remarksRows: ((j['remarks'] as Map<String, dynamic>)['rows'] as List)
           .map(_nums)
           .toList(),
+      setTimes: ((j['setTimes'] as Map<String, dynamic>?) ?? {}).map(
+        (k, v) => MapEntry(
+            int.parse(k), SetTimesLayout.fromJson(v as Map<String, dynamic>)),
+      ),
     );
   }
 }

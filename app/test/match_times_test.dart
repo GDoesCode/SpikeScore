@@ -170,6 +170,32 @@ void main() {
       expect(r.durationMinutesRightX, isNotNull);
     });
 
+    test('the layout has START and END time boxes for all three sets', () {
+      final l = SheetLayout.fromJsonString(layoutFile.readAsStringSync());
+      expect(l.setTimes.keys.toList()..sort(), [1, 2, 3]);
+    });
+
+    test('builds a PDF mid-match, with only the times so far', () async {
+      final clock = FakeClock(DateTime(2026, 11, 22, 19, 58));
+      final e = await engineAt(clock);
+      await playSet(e, clock, winner: Team.home, minutes: 24);
+      await e.startNewSet();
+      await score(e, Team.away, 3); // set 2 under way
+
+      final data = ScoresheetData.fromEngine(e);
+      expect(data.sets[0].end, isNotNull);
+      expect(data.sets[1].start, isNotNull);
+      expect(data.sets[1].end, isNull);
+      expect(data.matchEnd, isNull);
+
+      final bytes = await ScoresheetPdf.build(
+        data,
+        background: background.readAsBytesSync(),
+        layoutJson: layoutFile.readAsStringSync(),
+      );
+      expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
+    });
+
     test('builds a PDF with the match times filled in', () async {
       final clock = FakeClock(DateTime(2026, 11, 22, 19, 58));
       final e = await engineAt(clock);
