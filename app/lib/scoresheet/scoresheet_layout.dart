@@ -166,6 +166,21 @@ class ResultsLayout {
   final double winnerTextBaselineY;
   final List<double> printedWinnerSets; // bbox of the printed "2:"
 
+  /// Inside the brackets of "SET 1 (   )": [x0, x1], on the set rows.
+  final List<double>? setDurationX;
+
+  /// Between "Total Set Duration(" and "mn)": [x0, x1], on the total row.
+  final List<double>? totalSetDurationX;
+
+  /// Baseline for the match starting time, ending time and total duration.
+  final double? timeBaselineY;
+
+  /// The printed colons in the starting and ending time boxes.
+  final double? startColonX, endColonX;
+
+  /// Right edges for the numbers in front of the printed "h" and "mn".
+  final double? durationHoursRightX, durationMinutesRightX;
+
   ResultsLayout({
     required this.teamANameBox,
     required this.teamBNameBox,
@@ -176,6 +191,13 @@ class ResultsLayout {
     required this.winnerNameX,
     required this.winnerTextBaselineY,
     required this.printedWinnerSets,
+    this.setDurationX,
+    this.totalSetDurationX,
+    this.timeBaselineY,
+    this.startColonX,
+    this.endColonX,
+    this.durationHoursRightX,
+    this.durationMinutesRightX,
   });
 
   factory ResultsLayout.fromJson(Map<String, dynamic> j) {
@@ -191,6 +213,15 @@ class ResultsLayout {
       winnerNameX: _nums(j['winnerNameX']),
       winnerTextBaselineY: (j['winnerTextBaselineY'] as num).toDouble(),
       printedWinnerSets: _nums(j['printedWinnerSets']),
+      setDurationX: j['setDurationX'] == null ? null : _nums(j['setDurationX']),
+      totalSetDurationX: j['totalSetDurationX'] == null
+          ? null
+          : _nums(j['totalSetDurationX']),
+      timeBaselineY: (j['timeBaselineY'] as num?)?.toDouble(),
+      startColonX: (j['startColonX'] as num?)?.toDouble(),
+      endColonX: (j['endColonX'] as num?)?.toDouble(),
+      durationHoursRightX: (j['durationHoursRightX'] as num?)?.toDouble(),
+      durationMinutesRightX: (j['durationMinutesRightX'] as num?)?.toDouble(),
     );
   }
 }
