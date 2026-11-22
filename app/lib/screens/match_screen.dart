@@ -7,12 +7,14 @@ import '../match_engine.dart';
 import '../models.dart';
 import '../scoresheet/scoresheet_publisher.dart';
 import 'notes_screen.dart';
+import 'referee_override.dart';
 import 'settings_screen.dart';
 import 'sign_off_screen.dart';
 
 enum _MenuAction {
   notes,
   signOff,
+  override,
   settings,
   endSet,
   publish,
@@ -37,6 +39,22 @@ class _MatchScreenState extends State<MatchScreen> {
     borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
   );
   static const _sheetColor = Color(0xFF222222);
+
+  /// True once the pre-match signing screen has been opened by itself, so it
+  /// isn't pushed again on every rebuild while it is waiting.
+  bool _preMatchShown = false;
+
+  void _openPreMatchSigning() {
+    if (!mounted) return;
+    Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => const SignOffScreen(stage: SignOffStage.preMatch)));
+  }
+
+  void _openPostMatchSigning() {
+    if (!mounted) return;
+    Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => const SignOffScreen(stage: SignOffStage.postMatch)));
+  }
 
   @override
   void initState() {
@@ -97,6 +115,9 @@ class _MatchScreenState extends State<MatchScreen> {
       case _MenuAction.signOff:
         Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SignOffScreen()));
         break;
+      case _MenuAction.override:
+        showRefereeOverride(context);
+        break;
       case _MenuAction.settings:
         Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen()));
         break;
@@ -120,6 +141,19 @@ class _MatchScreenState extends State<MatchScreen> {
     // chosen and first serve picked (this repeats for the deciding set).
     final setupDone = !engine.needsSides && !engine.needsFirstServe;
 
+    // Locked while the captains sign the team sheets, and once the finished
+    // match has been signed off (until a referee override unlocks it).
+    final locked = engine.awaitingPreMatchSignatures || engine.isSignedOff;
+    final canAct = setupDone && !locked;
+
+    // Straight after the first coin toss, bring up the pre-match signatures.
+    if (engine.awaitingPreMatchSignatures && !_preMatchShown) {
+      _preMatchShown = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _openPreMatchSigning());
+    } else if (!engine.awaitingPreMatchSignatures) {
+      _preMatchShown = false;
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
@@ -142,7 +176,12 @@ class _MatchScreenState extends State<MatchScreen> {
             onSelected: (action) => _onMenu(action, engine),
             itemBuilder: (context) => [
               _menuItem(_MenuAction.notes, Icons.edit_note, 'Notes'),
-              _menuItem(_MenuAction.signOff, Icons.draw, 'Sign-off (captains, officials)'),
+              _menuItem(
+                _MenuAction.signOff,
+                Icons.draw,
+                engine.isMatchComplete ? 'Sign the scoresheet' : 'Team sheet signatures',
+              ),
+              _menuItem(_MenuAction.override, Icons.gavel, 'Referee override'),
               _menuItem(_MenuAction.publish, Icons.picture_as_pdf, 'Publish scoresheet (PDF)'),
               _menuItem(_MenuAction.settings, Icons.tune, 'Match settings'),
               const PopupMenuDivider(),
@@ -188,7 +227,23 @@ class _MatchScreenState extends State<MatchScreen> {
                     ],
                   ),
                 ),
-                if (engine.needsSides || engine.needsFirstServe) _buildSetupOverlay(engine),
+                if (engine.needsSides || engine.needsFirstServe)
+                  _buildSetupOverlay(engine)
+                else if (engine.awaitingPreMatchSignatures)
+                  _buildLockOverlay(
+                    'Waiting for the team sheet signatures',
+                    'Captains${Team.values.any(engine.hasCoach) ? ' and coaches' : ''} '
+                        'sign to confirm the team sheets before the first rally.',
+                    'Open signatures',
+                    _openPreMatchSigning,
+                  )
+                else if (engine.isSignedOff)
+                  _buildLockOverlay(
+                    'Scoresheet signed',
+                    'Scoring and undo are locked. A referee override can unlock it.',
+                    'Signatures',
+                    _openPostMatchSigning,
+                  ),
               ],
             ),
           ),
@@ -215,7 +270,7 @@ class _MatchScreenState extends State<MatchScreen> {
                   ),
                 ),
                 ElevatedButton.icon(
-                  onPressed: setupDone ? () => _showTimeoutModal(context) : null,
+                  onPressed: canAct ? () => _showTimeoutModal(context) : null,
                   icon: const Icon(Icons.timer),
                   label: const Text('Timeout'),
                   style: ElevatedButton.styleFrom(
@@ -226,7 +281,7 @@ class _MatchScreenState extends State<MatchScreen> {
                   ),
                 ),
                 ElevatedButton.icon(
-                  onPressed: setupDone ? () => _showSubTeamModal(context) : null,
+                  onPressed: canAct ? () => _showSubTeamModal(context) : null,
                   icon: const Icon(Icons.swap_horiz),
                   label: const Text('Sub'),
                   style: ElevatedButton.styleFrom(
@@ -252,13 +307,16 @@ class _MatchScreenState extends State<MatchScreen> {
     final server = engine.serverIfWins(team);
 
     return GestureDetector(
-      onTap: engine.isSetComplete
+      onTap: engine.isSetComplete || engine.awaitingPreMatchSignatures || engine.isSignedOff
           ? null
           : () {
               HapticFeedback.mediumImpact();
               // The score updates immediately; saving happens in the background.
               engine.scorePoint(team);
-              if (engine.isSetComplete) {
+              if (engine.isMatchComplete) {
+                // The match is over: straight to the end-of-match signatures.
+                _openPostMatchSigning();
+              } else if (engine.isSetComplete) {
                 _showSetCompletionModal(context);
               }
             },
@@ -334,6 +392,57 @@ class _MatchScreenState extends State<MatchScreen> {
                   ),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // --- LOCKED: waiting for signatures, or signed off (covers the scoreboard) ---
+  Widget _buildLockOverlay(
+    String title,
+    String message,
+    String buttonLabel,
+    VoidCallback onOpen,
+  ) {
+    return Positioned.fill(
+      child: Container(
+        color: Colors.black87,
+        padding: const EdgeInsets.all(16),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.lock, color: Colors.white54, size: 32),
+              const SizedBox(height: 8),
+              Text(title,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                      color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 6),
+              Text(message,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white70, fontSize: 14)),
+              const SizedBox(height: 16),
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 12,
+                runSpacing: 8,
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: onOpen,
+                    icon: const Icon(Icons.draw),
+                    label: Text(buttonLabel),
+                  ),
+                  TextButton.icon(
+                    onPressed: () => showRefereeOverride(context),
+                    icon: const Icon(Icons.gavel, size: 18),
+                    label: const Text('Referee override'),
+                    style: TextButton.styleFrom(foregroundColor: Colors.amberAccent),
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
       ),

@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'demo_data.dart';
 import 'match_rules.dart';
 import 'models.dart';
+import 'scoresheet/signature_slots.dart';
 
 enum MatchMode { localLeague3Set, nationalLeague5Set }
 
@@ -18,7 +19,11 @@ enum Team {
   String get label => this == Team.home ? 'Home' : 'Away';
 }
 
-enum EventType { sides, firstServe, point, timeout, sub, newSet }
+/// [scoreAdjust] is a referee override: [MatchEvent.team]'s score in the
+/// current set changes by [MatchEvent.delta] (for example to cancel points
+/// won with an illegal player). It is not a rally: nobody rotates and the
+/// serve stays where it is.
+enum EventType { sides, firstServe, point, timeout, sub, newSet, scoreAdjust }
 
 /// One thing that happened in the match. The event list is the single source
 /// of truth: everything else (score, sets, subs, lineups, who is serving) is
@@ -34,12 +39,19 @@ class MatchEvent {
   /// start and end times and the set durations.
   final DateTime? at;
 
+  /// [EventType.scoreAdjust] only: points added (or taken away if negative).
+  final int? delta;
+
   const MatchEvent(this.type,
-      {this.team, this.playerOff, this.playerOn, this.at});
+      {this.team, this.playerOff, this.playerOn, this.at, this.delta});
 
   /// The same event, stamped with the time it was recorded.
   MatchEvent stamped(DateTime time) => MatchEvent(type,
-      team: team, playerOff: playerOff, playerOn: playerOn, at: time);
+      team: team,
+      playerOff: playerOff,
+      playerOn: playerOn,
+      at: time,
+      delta: delta);
 
   Map<String, dynamic> toJson() => {
         'type': type.name,
@@ -47,6 +59,7 @@ class MatchEvent {
         if (playerOff != null) 'off': playerOff,
         if (playerOn != null) 'on': playerOn,
         if (at != null) 'at': at!.millisecondsSinceEpoch,
+        if (delta != null) 'delta': delta,
       };
 
   factory MatchEvent.fromJson(Map<String, dynamic> json) => MatchEvent(
@@ -59,6 +72,7 @@ class MatchEvent {
         at: json['at'] is int
             ? DateTime.fromMillisecondsSinceEpoch(json['at'] as int)
             : null,
+        delta: json['delta'] as int?,
       );
 }
 
@@ -255,6 +269,15 @@ class MatchEngine extends ChangeNotifier {
 
   String _notes = '';
 
+  /// Set by a referee override when the match goes ahead without the
+  /// pre-match signatures (for example a captain who hasn't arrived yet).
+  bool _preMatchWaived = false;
+
+  /// Most valuable player of each team (jersey number), chosen at the end of
+  /// the match by the opposing captain, as the sheet says ("For Team A,
+  /// nominated by team B").
+  final Map<Team, int> _mvp = {};
+
   late TeamSheet homeTeamSheet;
   late TeamSheet awayTeamSheet;
 
@@ -446,10 +469,17 @@ class MatchEngine extends ChangeNotifier {
 
     _signatures.clear();
     _notes = '';
+    _preMatchWaived = false;
+    _mvp.clear();
     try {
       final data = jsonDecode(raw) as Map<String, dynamic>;
       final savedNotes = data['notes'];
       if (savedNotes is String) _notes = savedNotes;
+      _preMatchWaived = data['preMatchWaived'] == true;
+      final mvp = data['mvp'];
+      if (mvp is Map<String, dynamic>) {
+        mvp.forEach((t, n) => _mvp[Team.values.byName(t)] = n as int);
+      }
       final saved = data['signatures'];
       if (saved is Map<String, dynamic>) {
         saved.forEach((id, strokes) {
@@ -477,6 +507,8 @@ class MatchEngine extends ChangeNotifier {
         'events': _events.map((e) => e.toJson()).toList(),
         'signatures': _signatures,
         'notes': _notes,
+        'preMatchWaived': _preMatchWaived,
+        'mvp': {for (final e in _mvp.entries) e.key.name: e.value},
       }),
     );
   }
@@ -621,6 +653,27 @@ class MatchEngine extends ChangeNotifier {
             t.pairSubCounts[on] = swaps;
 
             t.subCount++;
+            break;
+          }
+
+        case EventType.scoreAdjust:
+          {
+            if (team == null || e.delta == null) break;
+            final t = s.teams[team]!;
+            t.score = (t.score + e.delta!).clamp(0, 999).toInt();
+            final round = s.openRound;
+            if (round != null && round.team == team) {
+              round.endOwn = t.score < round.startOwn ? round.startOwn : t.score;
+            }
+            if (_isComplete(s)) {
+              final home = s.teams[Team.home]!.score;
+              final away = s.teams[Team.away]!.score;
+              s.openRound?.close(home + away);
+              s.openRound = null;
+            } else if (s.openRound == null && s.servingTeam != null) {
+              // The correction reopened a finished set: serving carries on.
+              _openRound(s, s.servingTeam!);
+            }
             break;
           }
 
@@ -804,7 +857,9 @@ class MatchEngine extends ChangeNotifier {
 
   List<String> get setHistory => List.unmodifiable(_s.setHistory);
 
-  bool get canUndo => _events.isNotEmpty;
+  /// False once the officials have started signing the finished match: a
+  /// referee override has to unlock it first.
+  bool get canUndo => _events.isNotEmpty && !isSignedOff;
 
   /// Everything that has happened so far, in order (read-only).
   List<MatchEvent> get events => List.unmodifiable(_events);
@@ -830,12 +885,14 @@ class MatchEngine extends ChangeNotifier {
     List<List<List<double>>> strokes,
   ) async {
     if (strokes.isEmpty) return;
+    if (isSignatureLocked(slotId)) return;
     _signatures[slotId] = strokes;
     notifyListeners();
     await _save();
   }
 
   Future<void> clearSignature(String slotId) async {
+    if (isSignatureLocked(slotId)) return;
     if (_signatures.remove(slotId) == null) return;
     notifyListeners();
     await _save();
@@ -918,11 +975,12 @@ class MatchEngine extends ChangeNotifier {
   // ---------------------------------------------------------------------------
 
   Future<void> scorePoint(Team team) async {
-    if (needsFirstServe || isSetComplete) return;
+    if (needsFirstServe || isSetComplete || isSignedOff) return;
     await _record(MatchEvent(EventType.point, team: team));
   }
 
   Future<bool> takeTimeout(Team team) async {
+    if (isSignedOff) return false;
     if (timeOutsOf(team) >= _rules.timeOutsPerSet) return false;
     await _record(MatchEvent(EventType.timeout, team: team));
     return true;
@@ -934,7 +992,7 @@ class MatchEngine extends ChangeNotifier {
   }
 
   Future<void> undo() async {
-    if (_events.isEmpty) return;
+    if (!canUndo) return;
     _events.removeLast();
     _s = _replay();
     notifyListeners();
@@ -945,9 +1003,169 @@ class MatchEngine extends ChangeNotifier {
     _events.clear();
     _signatures.clear();
     _notes = '';
+    _preMatchWaived = false;
+    _mvp.clear();
     _s = _replay();
     notifyListeners();
     await _save();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Signing in two stages, and what it locks
+  // ---------------------------------------------------------------------------
+
+  /// True if the team sheet lists a coach (role C) for [team].
+  bool hasCoach(Team team) =>
+      (officials[team] ?? const []).any((o) => o.role.toUpperCase() == 'C');
+
+  /// Signed before the first rally, to confirm the team sheets: each captain,
+  /// and each coach if the team has one (the SIGNATURES box).
+  List<String> get preMatchSlots => [
+        for (final t in Team.values) ...[
+          SignatureSlots.captain(t),
+          if (hasCoach(t)) SignatureSlots.coach(t),
+        ],
+      ];
+
+  /// Signed once the match is over (the APPROVAL table).
+  static final List<String> postMatchSlots = [
+    SignatureSlots.ref1,
+    SignatureSlots.ref2,
+    SignatureSlots.scorer,
+    SignatureSlots.assistantScorer,
+    ...SignatureSlots.lineJudges,
+    SignatureSlots.approvalCaptain(Team.home),
+    SignatureSlots.approvalCaptain(Team.away),
+  ];
+
+  static bool isPostMatchSlot(String slotId) => postMatchSlots.contains(slotId);
+
+  bool get preMatchSigned => preMatchSlots.every(_signatures.containsKey);
+
+  /// True once a rally, time-out or substitution has been recorded.
+  bool get playHasStarted => _events.any((e) =>
+      e.type == EventType.point ||
+      e.type == EventType.timeout ||
+      e.type == EventType.sub);
+
+  /// True if a referee let the match start without the pre-match signatures.
+  bool get preMatchWaived => _preMatchWaived;
+
+  /// After the first coin toss (sides and first serve), play waits until the
+  /// captains (and coaches) have signed to confirm the team sheets, or a
+  /// referee lets the match go ahead without them.
+  bool get awaitingPreMatchSignatures =>
+      _s.currentSet == 1 &&
+      !needsSides &&
+      !needsFirstServe &&
+      !playHasStarted &&
+      !preMatchSigned &&
+      !_preMatchWaived;
+
+  /// True once the match is over and anyone has signed the APPROVAL table.
+  /// Scoring, time-outs, subs and undo are then locked until a referee
+  /// override unlocks the sheet (which wipes those signatures).
+  bool get isSignedOff =>
+      isMatchComplete && postMatchSlots.any(_signatures.containsKey);
+
+  /// Pre-match signatures can't be redone or removed once play has started;
+  /// a missing one can still be added.
+  bool isSignatureLocked(String slotId) =>
+      !isPostMatchSlot(slotId) &&
+      playHasStarted &&
+      _signatures.containsKey(slotId);
+
+  // ---------------------------------------------------------------------------
+  // Referee override
+  // ---------------------------------------------------------------------------
+
+  /// Referee override: changes [team]'s score in the current set by [delta]
+  /// (+1 or -1 per tap), for example to take off points won with an illegal
+  /// player. A signed-off sheet is unlocked (its approval signatures wiped)
+  /// and a line is added to the remarks.
+  Future<void> adjustScore(Team team, int delta,
+      {required String referee}) async {
+    if (delta == 0 || needsFirstServe) return;
+    if (scoreOf(team) + delta < 0) return;
+    final before = '${scoreOf(Team.home)}:${scoreOf(Team.away)}';
+    _clearPostMatchSignatures();
+    await _record(MatchEvent(EventType.scoreAdjust, team: team, delta: delta));
+    final sign = delta > 0 ? '+$delta' : '$delta';
+    _addRemark(referee,
+        'set ${_s.currentSet}, ${sheetOf(team).teamName} $sign point(s). '
+        'Score (home:away) $before -> ${scoreOf(Team.home)}:${scoreOf(Team.away)}.');
+    notifyListeners();
+    await _save();
+  }
+
+  /// Referee override: play can start without the pre-match signatures.
+  Future<void> waivePreMatchSignatures({required String referee}) async {
+    if (_preMatchWaived) return;
+    _preMatchWaived = true;
+    final missing = preMatchSlots.where((id) => !_signatures.containsKey(id));
+    _addRemark(referee,
+        'match started without pre-match signatures (${missing.length} missing).');
+    notifyListeners();
+    await _save();
+  }
+
+  /// Referee override: unlocks a signed-off match so it can be changed. The
+  /// APPROVAL signatures are wiped, since they no longer match the sheet.
+  Future<void> unlockSignedSheet({required String referee}) async {
+    if (!isSignedOff) return;
+    _clearPostMatchSignatures();
+    _addRemark(referee, 'signed sheet unlocked for a correction; '
+        'approval signatures cleared.');
+    notifyListeners();
+    await _save();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Most valuable players
+  // ---------------------------------------------------------------------------
+
+  /// The MVP of [team], if one has been chosen.
+  int? mvpOf(Team team) => _mvp[team];
+
+  /// Everyone on [team] who was on court at some point: the starters and
+  /// anyone who came on as a substitute.
+  List<Player> playersWhoPlayed(Team team) {
+    final numbers = <int>{
+      ...sheetOf(team).startingLineup,
+      for (final e in _events)
+        if (e.type == EventType.sub && e.team == team && e.playerOn != null)
+          e.playerOn!,
+    };
+    return [
+      for (final p in sheetOf(team).roster)
+        if (numbers.contains(p.number)) p
+    ];
+  }
+
+  /// Records [player] as [team]'s MVP. Only once the match is over, and only
+  /// a player who played. The opposing captain picks it and then signs, so a
+  /// new pick wipes that captain's approval signature.
+  Future<void> setMvp(Team team, int player) async {
+    if (!isMatchComplete) return;
+    if (!playersWhoPlayed(team).any((p) => p.number == player)) return;
+    if (_mvp[team] == player) return;
+    _mvp[team] = player;
+    _signatures.remove(SignatureSlots.approvalCaptain(team.other));
+    notifyListeners();
+    await _save();
+  }
+
+  void _clearPostMatchSignatures() {
+    for (final id in postMatchSlots) {
+      _signatures.remove(id);
+    }
+  }
+
+  void _addRemark(String referee, String text) {
+    final t = _clock();
+    String two(int n) => n.toString().padLeft(2, '0');
+    final line = 'Ref override ($referee, ${two(t.hour)}:${two(t.minute)}): $text';
+    _notes = _notes.trim().isEmpty ? line : '${_notes.trimRight()}\n$line';
   }
 
   // ---------------------------------------------------------------------------
@@ -996,6 +1214,7 @@ class MatchEngine extends ChangeNotifier {
   ) async {
     // The engine enforces the rules itself, so a stale or double tap can't
     // record an impossible sub.
+    if (isSignedOff) return;
     if (!canTakeSub(team)) return;
     if (isPositionExhausted(team, playerOffNum)) return;
     if (!_ts(team).onCourt.contains(playerOffNum)) return;

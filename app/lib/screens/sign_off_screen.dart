@@ -3,54 +3,136 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../match_engine.dart';
+import '../scoresheet/scoresheet_publisher.dart';
 import '../scoresheet/signature_slots.dart';
+import 'referee_override.dart';
+import 'team_sheets_screen.dart';
 
-/// Collects drawn signatures for the scoresheet: captains and coaches (the
-/// SIGNATURES box) and the referees, scorers, line judges and captains again
-/// (the APPROVAL table). Open it from the app bar whenever you need it; the
-/// PDF uses whatever has been signed and leaves the rest blank.
+/// The two moments the scoresheet is signed.
+enum SignOffStage {
+  /// After the first coin toss: captains (and coaches) confirm the team sheets.
+  preMatch,
+
+  /// When the match is over: referees, scorers, line judges and captains.
+  postMatch,
+}
+
+/// Collects drawn signatures for the scoresheet in two stages. Before the
+/// match the captains and coaches sign to confirm the team sheets (the
+/// SIGNATURES box); once the match is over the referees, scorers, line judges
+/// and captains sign the APPROVAL table. The second stage stays hidden until
+/// the match is finished. Leave [stage] out to show whichever stage is due.
 class SignOffScreen extends StatelessWidget {
-  const SignOffScreen({super.key});
+  const SignOffScreen({super.key, this.stage});
+
+  final SignOffStage? stage;
+
+  static SignOffStage stageFor(MatchEngine engine) =>
+      engine.isMatchComplete ? SignOffStage.postMatch : SignOffStage.preMatch;
 
   @override
   Widget build(BuildContext context) {
     final engine = context.watch<MatchEngine>();
+    final current = stage ?? stageFor(engine);
     String name(Team t) => engine.sheetOf(t).teamName;
 
-    final before = <_Slot>[
-      _Slot(SignatureSlots.captain(Team.home), '${name(Team.home)} captain'),
-      _Slot(SignatureSlots.coach(Team.home), '${name(Team.home)} coach'),
-      _Slot(SignatureSlots.captain(Team.away), '${name(Team.away)} captain'),
-      _Slot(SignatureSlots.coach(Team.away), '${name(Team.away)} coach'),
+    String label(String id) {
+      for (final t in Team.values) {
+        if (id == SignatureSlots.captain(t)) return '${name(t)} captain';
+        if (id == SignatureSlots.coach(t)) return '${name(t)} coach';
+        if (id == SignatureSlots.approvalCaptain(t)) return '${name(t)} captain';
+      }
+      final j = SignatureSlots.lineJudges.indexOf(id);
+      if (j >= 0) return 'Line judge ${j + 1}';
+      return switch (id) {
+        SignatureSlots.ref1 => '1st referee',
+        SignatureSlots.ref2 => '2nd referee',
+        SignatureSlots.scorer => 'Scorer',
+        SignatureSlots.assistantScorer => 'Assistant scorer',
+        _ => id,
+      };
+    }
+
+    final pre = current == SignOffStage.preMatch;
+    final slots = [
+      for (final id in pre ? engine.preMatchSlots : MatchEngine.postMatchSlots)
+        _Slot(id, label(id)),
     ];
-    final after = <_Slot>[
-      const _Slot(SignatureSlots.ref1, '1st referee'),
-      const _Slot(SignatureSlots.ref2, '2nd referee'),
-      const _Slot(SignatureSlots.scorer, 'Scorer'),
-      const _Slot(SignatureSlots.assistantScorer, 'Assistant scorer'),
-      for (var i = 0; i < SignatureSlots.lineJudges.length; i++)
-        _Slot(SignatureSlots.lineJudges[i], 'Line judge ${i + 1}'),
-      _Slot(SignatureSlots.approvalCaptain(Team.home),
-          '${name(Team.home)} captain (approval)'),
-      _Slot(SignatureSlots.approvalCaptain(Team.away),
-          '${name(Team.away)} captain (approval)'),
-    ];
+
+    final winner = engine.winningTeam;
+    final header = pre
+        ? 'Captains${Team.values.any(engine.hasCoach) ? ' and coaches' : ''} sign '
+            'to confirm the team sheets. Play starts once everyone listed has signed.'
+        : winner == null
+            ? 'Referees, scorers, line judges and captains sign the scoresheet.'
+            : '${name(winner)} won the match '
+                '${engine.setsWonOf(winner) + 1}:${engine.setsWonOf(winner.other)}. '
+                'Referees, scorers, line judges and captains sign the scoresheet. '
+                'Once anyone signs, scoring and undo are locked; a referee '
+                'override unlocks them.';
 
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
-        title: const Text('Sign-off', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(pre ? 'Confirm team sheets' : 'Sign the scoresheet',
+            style: const TextStyle(fontWeight: FontWeight.bold)),
         backgroundColor: const Color(0xFF1E1E1E),
         elevation: 0,
       ),
       body: ListView(
         padding: const EdgeInsets.all(12),
         children: [
-          const _SectionTitle('Before the match: SIGNATURES box'),
-          for (final s in before) _SlotTile(slot: s, engine: engine),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 4, 4, 12),
+            child: Text(header, style: const TextStyle(color: Colors.white70, fontSize: 14)),
+          ),
+          if (pre)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const TeamSheetsScreen())),
+                icon: const Icon(Icons.groups),
+                label: const Text('Open team sheets'),
+              ),
+            ),
+          const SizedBox(height: 8),
+          _SectionTitle(pre
+              ? 'Before the match: SIGNATURES box'
+              : 'After the match: APPROVAL table'),
+          for (final s in slots) _SlotTile(slot: s, engine: engine),
           const SizedBox(height: 16),
-          const _SectionTitle('After the match: APPROVAL table'),
-          for (final s in after) _SlotTile(slot: s, engine: engine),
+          if (!pre)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () => ScoresheetPublisher.publish(context, engine),
+                icon: const Icon(Icons.picture_as_pdf, size: 18),
+                label: const Text('Publish scoresheet (PDF)'),
+                style: TextButton.styleFrom(foregroundColor: Colors.lightBlueAccent),
+              ),
+            ),
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 12,
+            runSpacing: 8,
+            children: [
+              TextButton.icon(
+                onPressed: () => showRefereeOverride(context),
+                icon: const Icon(Icons.gavel, size: 18),
+                label: const Text('Referee override'),
+                style: TextButton.styleFrom(foregroundColor: Colors.amberAccent),
+              ),
+              if (pre)
+                ElevatedButton(
+                  onPressed: engine.preMatchSigned || engine.preMatchWaived
+                      ? () => Navigator.of(context).maybePop()
+                      : null,
+                  child: const Text('Start the match'),
+                ),
+            ],
+          ),
           const SizedBox(height: 24),
         ],
       ),
@@ -89,33 +171,76 @@ class _SlotTile extends StatelessWidget {
   final _Slot slot;
   final MatchEngine engine;
 
+  /// The team whose MVP this captain picks before signing (the opponents,
+  /// as the sheet says), or null if this slot isn't an approval captain.
+  Team? get _mvpTeam {
+    for (final t in Team.values) {
+      if (slot.id == SignatureSlots.approvalCaptain(t)) return t.other;
+    }
+    return null;
+  }
+
   Future<void> _sign(BuildContext context) async {
+    final mvpTeam = _mvpTeam;
+    if (mvpTeam != null) {
+      final pick = await showDialog<int>(
+        context: context,
+        builder: (_) => _MvpPicker(
+          engine: engine,
+          team: mvpTeam,
+          captainOf: mvpTeam.other,
+        ),
+      );
+      if (pick == null || !context.mounted) return;
+      await engine.setMvp(mvpTeam, pick);
+      if (!context.mounted) return;
+    }
     final result = await showDialog<List<List<List<double>>>>(
       context: context,
-      builder: (_) => _SignaturePadDialog(title: slot.label),
+      builder: (_) => SignaturePadDialog(title: slot.label),
     );
     if (result != null && result.isNotEmpty) {
       await engine.setSignature(slot.id, result);
     }
   }
 
+  String _mvpLine() {
+    final team = _mvpTeam!;
+    final n = engine.mvpOf(team);
+    final name = engine.sheetOf(team).teamName;
+    if (n == null) return 'MVP for $name: not picked yet';
+    final p = engine.sheetOf(team).roster.where((p) => p.number == n);
+    return 'MVP for $name: #$n${p.isEmpty ? '' : ' ${p.first.name}'}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final ink = engine.signatures[slot.id];
     final signed = ink != null;
+    final locked = engine.isSignatureLocked(slot.id);
 
     return Card(
       color: const Color(0xFF1E1E1E),
       margin: const EdgeInsets.symmetric(vertical: 4),
       child: ListTile(
-        onTap: () => _sign(context),
+        isThreeLine: _mvpTeam != null,
+        onTap: locked ? null : () => _sign(context),
         leading: Icon(
-          signed ? Icons.check_circle : Icons.draw,
+          signed ? (locked ? Icons.lock : Icons.check_circle) : Icons.draw,
           color: signed ? Colors.greenAccent : Colors.white54,
         ),
         title: Text(slot.label, style: const TextStyle(color: Colors.white)),
         subtitle: Text(
-          signed ? 'Signed. Tap to sign again.' : 'Tap to sign',
+          [
+            if (_mvpTeam != null) _mvpLine(),
+            locked
+                ? 'Signed. Locked now that play has started.'
+                : signed
+                    ? 'Signed. Tap to pick again and sign again.'
+                    : _mvpTeam != null
+                        ? 'Tap to pick the MVP, then sign'
+                        : 'Tap to sign',
+          ].join('\n'),
           style: const TextStyle(color: Colors.white54, fontSize: 12),
         ),
         trailing: Row(
@@ -131,7 +256,7 @@ class _SlotTile extends StatelessWidget {
                 ),
                 child: CustomPaint(painter: _InkPainter(ink)),
               ),
-            if (ink != null)
+            if (ink != null && !locked)
               IconButton(
                 icon: const Icon(Icons.delete_outline, color: Colors.white54),
                 tooltip: 'Remove signature',
@@ -140,6 +265,74 @@ class _SlotTile extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// The captain of [captainOf] picks the most valuable player of [team] from
+/// the players who were on court in this match.
+class _MvpPicker extends StatelessWidget {
+  const _MvpPicker({
+    required this.engine,
+    required this.team,
+    required this.captainOf,
+  });
+
+  final MatchEngine engine;
+  final Team team;
+  final Team captainOf;
+
+  @override
+  Widget build(BuildContext context) {
+    final players = engine.playersWhoPlayed(team);
+    final current = engine.mvpOf(team);
+    return AlertDialog(
+      backgroundColor: const Color(0xFF222222),
+      title: Text('MVP for ${engine.sheetOf(team).teamName}',
+          style: const TextStyle(color: Colors.white)),
+      content: SizedBox(
+        width: 360,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${engine.sheetOf(captainOf).teamName} captain: pick one player who '
+              'played in this match, then sign.',
+              style: const TextStyle(color: Colors.white70, fontSize: 13),
+            ),
+            const SizedBox(height: 8),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  for (final p in players)
+                    ListTile(
+                      dense: true,
+                      leading: Icon(
+                        p.number == current ? Icons.star : Icons.star_border,
+                        color: p.number == current ? Colors.amberAccent : Colors.white38,
+                      ),
+                      title: Text('#${p.number}  ${p.name}',
+                          style: const TextStyle(color: Colors.white)),
+                      subtitle: Text(p.position,
+                          style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                      onTap: () => Navigator.pop(context, p.number),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const TeamSheetsScreen())),
+          child: const Text('Team sheets'),
+        ),
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+      ],
     );
   }
 }
@@ -179,16 +372,16 @@ class _InkPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
 
-class _SignaturePadDialog extends StatefulWidget {
-  const _SignaturePadDialog({required this.title});
+class SignaturePadDialog extends StatefulWidget {
+  const SignaturePadDialog({super.key, required this.title});
 
   final String title;
 
   @override
-  State<_SignaturePadDialog> createState() => _SignaturePadDialogState();
+  State<SignaturePadDialog> createState() => SignaturePadDialogState();
 }
 
-class _SignaturePadDialogState extends State<_SignaturePadDialog> {
+class SignaturePadDialogState extends State<SignaturePadDialog> {
   // Strokes -> points -> [x, y], each 0 to 1 across the pad.
   final List<List<List<double>>> _strokes = [];
 

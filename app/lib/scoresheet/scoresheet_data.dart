@@ -138,6 +138,9 @@ class ScoresheetData {
   /// Free-text notes from the Notes screen, printed in the REMARKS box.
   final String notes;
 
+  /// Each team's most valuable player (jersey number), if chosen.
+  final Map<Team, int> mvp;
+
   /// When the first rally of the match was scored. Null before that.
   DateTime? get matchStart => sets.isEmpty ? null : sets.first.start;
 
@@ -170,6 +173,7 @@ class ScoresheetData {
     required this.info,
     required this.officials,
     required this.notes,
+    this.mvp = const {},
   });
 
   /// The BVA sheet in the app is the 3-set one, so only the 3-set format fits.
@@ -267,6 +271,23 @@ class ScoresheetData {
             break;
           }
 
+        case EventType.scoreAdjust:
+          {
+            // A referee's correction: only the numbers change.
+            final t = team!;
+            final v = score[t]! + (e.delta ?? 0);
+            score[t] = v < 0 ? 0 : v;
+            final home = score[Team.home]!;
+            final away = score[Team.away]!;
+            cur.score[Team.home] = home;
+            cur.score[Team.away] = away;
+            final done = _isComplete(setNo, home, away, rules);
+            cur.complete = done;
+            cur.winner = done ? (home > away ? Team.home : Team.away) : null;
+            cur.end = done ? (cur.end ?? e.at) : null;
+            break;
+          }
+
         case EventType.newSet:
           {
             setNo++;
@@ -343,6 +364,10 @@ class ScoresheetData {
       info: engine.matchInfo,
       officials: engine.officials,
       notes: engine.notes,
+      mvp: {
+        for (final t in Team.values)
+          if (engine.mvpOf(t) != null) t: engine.mvpOf(t)!,
+      },
     );
   }
 }
