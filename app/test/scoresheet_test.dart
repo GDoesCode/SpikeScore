@@ -259,6 +259,73 @@ void main() {
       expect(data.matchComplete, isTrue);
     });
 
+    test('deciding set: the team on the right keeps counting boxes after the '
+        'change, so a repeat server never lands on an earlier score', () async {
+      final e = await newEngine();
+      await playSet(e, winner: Team.home);
+      await e.startNewSet();
+      await playSet(e, winner: Team.away);
+      await e.startNewSet();
+
+      // Set 3: home starts on the left, away on the right and serving. Every
+      // rally is a side-out, so away rotates through all six servers twice.
+      await e.chooseSides(Team.home);
+      await e.chooseFirstServe(Team.away);
+      for (var i = 0; i < 13; i++) {
+        await e.scorePoint(Team.home);
+        await e.scorePoint(Team.away);
+      }
+
+      final set3 = ScoresheetData.fromEngine(e).sets[2];
+      expect(set3.leftAtStart, Team.home);
+      expect(set3.change, isNotNull);
+      final teamA = e.startingLeft[1] ?? Team.home;
+      expect(set3.splitsAtChange(Team.home, teamA), isTrue);
+      expect(set3.splitsAtChange(Team.away, teamA), isFalse);
+
+      // Away's server I served three times: ending on 0, 6 and 12. The last
+      // came after the change of ends but away is still in the same block,
+      // so it goes in box 3, not back in box 1 on top of the 0.
+      final away = set3.rounds[Team.away]!;
+      final serverI = away.where((r) => r.position == 1).toList();
+      expect(serverI.map((r) => r.endOwn), [0, 6, 12]);
+      expect(serverI.map((r) => r.afterChange), [false, false, true]);
+      expect(serverI.map((r) => r.cell), [0, 1, 2]);
+
+      // No two of away's rounds share a box.
+      final boxes = away.map((r) => '${r.position}:${r.cell}').toList();
+      expect(boxes.toSet().length, boxes.length);
+
+      // Home is split across two blocks, so each block has its own boxes:
+      // within each half no two rounds share a box, and the second half
+      // starts again at box 1.
+      final home = set3.rounds[Team.home]!;
+      for (final half in const [false, true]) {
+        final b = [
+          for (final r in home.where((r) => r.afterChange == half))
+            '${r.position}:${r.cell}'
+        ];
+        expect(b.toSet().length, b.length);
+      }
+      expect(home.firstWhere((r) => r.afterChange).cell, 0);
+    });
+
+    test('sets 1 and 2: a server serving many times gets a new box each time',
+        () async {
+      final e = await newEngine();
+      await e.chooseFirstServe(Team.home);
+      for (var i = 0; i < 24; i++) {
+        await e.scorePoint(Team.away);
+        await e.scorePoint(Team.home);
+      }
+      final set1 = ScoresheetData.fromEngine(e).sets.single;
+      for (final team in Team.values) {
+        final boxes =
+            set1.rounds[team]!.map((r) => '${r.position}:${r.cell}').toList();
+        expect(boxes.toSet().length, boxes.length);
+      }
+    });
+
     test('sets 1 and 2 never report a change of sides', () async {
       final e = await newEngine();
       await playSet(e, winner: Team.home);
