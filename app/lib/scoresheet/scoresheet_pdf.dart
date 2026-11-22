@@ -313,14 +313,19 @@ class _Painter {
     // set is circled.
     final allRounds = sd.rounds[team]!;
     final lastOverall = allRounds.isEmpty ? null : allRounds.last;
-    final perPos = <int, int>{};
+
+    // The team receiving first crosses out box 1 of service order I, so that
+    // player's first real service is written in box 2 and nothing is written
+    // over the cross. (Not repeated after the change of ends.)
+    if (sd.receivesFirst(team) && !afterOnly) {
+      _drawCross(b.rounds[0].first, inset: 1.6, width: 0.7);
+    }
+
     for (final r in allRounds) {
       if (!keep(r.afterChange)) continue;
-      final idx = perPos[r.position] ?? 0;
-      perPos[r.position] = idx + 1;
       final cells = b.rounds[r.position - 1];
-      if (idx >= cells.length) continue;
-      final cb = cells[idx];
+      if (r.cell >= cells.length) continue;
+      final cb = cells[r.cell];
       final cx = (cb[0] + cb[2]) / 2 + 0.3;
       _text('${r.endOwn}', cx, cb[3] - 2.1, 6.0, align: _Align.center);
       if (sd.complete && identical(r, lastOverall)) {
@@ -456,9 +461,9 @@ class _Painter {
   }
 
   // ------------------------------------------------- match details + officials
-  void _drawCross(List<double> box) {
-    _line(box[0] + 1.0, box[1] + 1.0, box[2] - 1.0, box[3] - 1.0, 0.8);
-    _line(box[0] + 1.0, box[3] - 1.0, box[2] - 1.0, box[1] + 1.0, 0.8);
+  void _drawCross(List<double> box, {double inset = 1.0, double width = 0.8}) {
+    _line(box[0] + inset, box[1] + inset, box[2] - inset, box[3] - inset, width);
+    _line(box[0] + inset, box[3] - inset, box[2] - inset, box[1] + inset, width);
   }
 
   String _two(int n) => n.toString().padLeft(2, '0');

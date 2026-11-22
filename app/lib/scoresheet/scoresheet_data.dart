@@ -1,5 +1,6 @@
 import '../demo_data.dart';
 import '../match_engine.dart';
+import '../match_rules.dart';
 import '../models.dart';
 
 /// Everything the paper scoresheet needs, worked out from the engine's
@@ -47,7 +48,14 @@ class SheetRound {
   final int endOwn;
   final bool afterChange;
   final List<int> servers;
-  const SheetRound(this.position, this.endOwn, this.afterChange, this.servers);
+
+  /// Which box of that position's column the score goes in, counting from 0
+  /// (0 is "1st"). Normally the position's 1st, 2nd, 3rd round in order, but
+  /// the team receiving first skips box 0 of position I (see
+  /// [SheetSet.receivesFirst]). Filled in when the data is built.
+  int cell = 0;
+
+  SheetRound(this.position, this.endOwn, this.afterChange, this.servers);
 }
 
 /// The moment teams swap ends in the deciding set (first team to reach 8).
@@ -87,6 +95,12 @@ class SheetSet {
       (start == null || end == null) ? null : minutesBetween(start!, end!);
 
   SheetSet(this.number);
+
+  /// True for the team that did not serve first in this set. On the paper
+  /// sheet it crosses out box 1 of service order I: that player won't serve
+  /// until the whole order has been through once, and their first real service
+  /// is written in box 2.
+  bool receivesFirst(Team team) => firstServe != null && firstServe != team;
 }
 
 /// Whole minutes between two clock times, counted the way the times are
@@ -164,12 +178,15 @@ class ScoresheetData {
 
   static const int _decidingSet = 3;
 
-  static bool _isComplete(int setNumber, int home, int away) {
-    final target = setNumber == _decidingSet ? 15 : 25;
-    return (home >= target || away >= target) && (home - away).abs() >= 2;
+  static bool _isComplete(int setNumber, int home, int away, MatchRules rules) {
+    final deciding = setNumber == _decidingSet;
+    final target = deciding ? rules.decidingSetPoints : rules.pointsPerSet;
+    final lead = deciding && !rules.decidingSetWinByTwo ? 1 : 2;
+    return (home >= target || away >= target) && (home - away).abs() >= lead;
   }
 
   factory ScoresheetData.fromEngine(MatchEngine engine) {
+    final rules = engine.rules;
     final teams = {
       Team.home: SheetTeam.fromSheet(engine.homeTeamSheet),
       Team.away: SheetTeam.fromSheet(engine.awayTeamSheet),
@@ -205,15 +222,14 @@ class ScoresheetData {
             cur.score[Team.away] = away;
             if (setNo == _decidingSet &&
                 cur.change == null &&
-                (home >= MatchEngine.changeSidesAt ||
-                    away >= MatchEngine.changeSidesAt)) {
+                (home >= rules.changeEndsAt || away >= rules.changeEndsAt)) {
               cur.change = SheetChange(
                 {Team.home: home, Team.away: away},
                 home + away,
                 {for (final t in Team.values) t: List<int>.of(slots[t]!)},
               );
             }
-            if (_isComplete(setNo, home, away)) {
+            if (_isComplete(setNo, home, away, rules)) {
               cur.complete = true;
               cur.winner = home > away ? Team.home : Team.away;
             }
@@ -279,6 +295,27 @@ class ScoresheetData {
       final after =
           change != null && (closedAt == null || closedAt >= change.total);
       s.rounds[r.team]!.add(SheetRound(r.position, r.endOwn, after, r.servers));
+    }
+
+    // Work out which box each round is written in. Each block of the sheet
+    // counts its own rounds: the first half of a set and, in the deciding set,
+    // the block after the change of ends.
+    for (final s in sets.values) {
+      for (final team in Team.values) {
+        final rounds = s.rounds[team]!;
+        for (final afterChange in const [false, true]) {
+          final used = <int, int>{};
+          if (!afterChange && s.receivesFirst(team)) {
+            used[1] = 1; // box 1 of service order I is crossed out
+          }
+          for (final r in rounds) {
+            if (r.afterChange != afterChange) continue;
+            final index = used[r.position] ?? 0;
+            used[r.position] = index + 1;
+            r.cell = index;
+          }
+        }
+      }
     }
 
     final setsWon = {Team.home: 0, Team.away: 0};

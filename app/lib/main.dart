@@ -1,7 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:provider/provider.dart';
 import 'match_engine.dart';
-import 'screens/match_screen.dart';
+import 'screens/home_screen.dart';
 
 void main() {
   runApp(
@@ -20,7 +20,7 @@ class SpikeScoreApp extends StatelessWidget {
     return MaterialApp(
       title: 'SpikeScore',
       theme: ThemeData.dark(useMaterial3: true),
-      home: const MatchScreen(),
+      home: const HomeScreen(),
     );
   }
 }

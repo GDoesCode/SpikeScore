@@ -31,23 +31,32 @@ Undo removes the last event and replays, so corrections never corrupt the sheet,
 - Coin toss: choose which team is on the left and who serves first (first set and deciding set only). In other sets the teams swap sides and the other team serves first automatically
 - Deciding set: teams change ends at 8 points and the scoreboard flips
 - Serving team and "Next server" shown for each team, with rotation handled on every side-out
-- Time-outs (two per team per set)
-- Substitutions: pick team, player out, player in. Six per set, each starting position may be substituted twice, and only the original starter can return (enforced by the engine)
-- Undo, End Set (only once a set is actually finished), Reset Match
+- Time-outs (two per team per set). Timeout and Sub stay disabled until sides and first serve have been chosen
+- Substitutions: pick team, player out, player in. Eight per set by default, each starting position may be substituted twice, and only the original starter can return (enforced by the engine)
+- Undo at the bottom of the screen. Everything else sits behind one menu button in the top bar: notes, sign-off, match format, End Set (only once a set is actually finished) and Reset Match. A dot appears on the menu button when a set has finished
+- Notes page for anything you would write in the margin of the paper sheet (for example a junior player's name and number). Saved with the match as you type
 - Match formats: local league (3 sets, set 3 to 15) and national league (5 sets, set 5 to 15). Format is locked once the match starts
 - The match is saved after every event, so closing the app loses nothing
 
+### Main menu and settings (built)
+
+The app opens on a main menu with cards for: start or continue the match, match settings, team sheets, notes, sign-off, the scoresheet PDF, and New match (with a confirmation).
+
+**Match settings** hold the format and rules: 3 or 5 sets, points per set (15 to 30), points in the tie-break (10 to 15; the teams change ends at half, rounded up), whether the tie-break must be won by 2 points, time-outs per team per set (0 to 2) and substitutions per team per set (0 to 12). They are locked once the match starts, and are saved separately from the match so they survive a reset or a change of teams. The defaults are the standard BVA rules (3 sets, 25 / 15, tie-break won by 2, two time-outs, eight subs).
+
+**Team sheets** lists the two teams in this match and any others in the data file, with players, starting line-up and officials. It is read only: the teams come from `assets/demo/demo_data.json`.
+
 ### Scoresheet PDF (built, 3-set matches only)
 
-"Publish scoresheet (PDF)" on the set-complete and match-complete sheets (and a debug-only button in the app bar) builds the official BVA 3-set sheet and opens the phone's share sheet. The page is the real BVA sheet with the match written on top, and anything the app doesn't know is left blank.
+"Publish scoresheet (PDF)" on the set-complete and match-complete sheets (and from the match menu or the main menu, any time) builds the official BVA 3-set sheet and opens the phone's share sheet. The page is the real BVA sheet with the match written on top, and anything the app doesn't know is left blank.
 
-Filled in: team names and A/B letters, player lists and liberos, team officials, match details, starting line-ups in service order, S/R markers, substitutions with the score at each, time-outs with the score, service round scores, points (slashed, last point ringed, unused numbers struck out), the change of ends in set 3, the results table, the winner and the signatures.
+Filled in: team names and A/B letters, player lists and liberos, team officials, match details, starting line-ups in service order, S/R markers, substitutions with the score at each, time-outs with the score, service round scores, points (slashed, last point ringed, unused numbers struck out), the change of ends in set 3, the results table, the winner, the signatures and the notes (in the REMARKS box: about six lines, shrunk to fit and cut off with "..." only if far too long).
 
-Team A is the team that started set 1 on the left.
+The team receiving first crosses out box 1 of service order I, as on paper, and that player's first real service goes in box 2. Team A is the team that started set 1 on the left.
 
 ### Sign-off screen (built)
 
-Drawn signatures for captains and coaches (before the match) and referees, scorers, line judges and captains (after the match). Opened from the pen icon in the app bar.
+Drawn signatures for captains and coaches (before the match) and referees, scorers, line judges and captains (after the match). Opened from the menu.
 
 ### Not built yet
 
@@ -74,7 +83,7 @@ Devices join the same match using a short session code. The table role is protec
 
 Teams, players and match details come from one editable file: `app/assets/demo/demo_data.json`.
 
-- `match`: the details printed in the sheet header (competition, venue, date, time, division, category) and which two teams are playing (`home` and `away`, by team `id`)
+- `match`: the details printed in the sheet header (competition, venue, date, time, division, category, and `juniors`, which just ticks the "Juniors" box) and which two teams are playing (`home` and `away`, by team `id`)
 - `teams`: a library of teams, each with players (shirt number, name, position), the six starters in service order (`startingLineup`) and optional `officials`
 
 Edit the file, save it, then stop the app and run it again. If a team in the file changes, the match saved on the phone is dropped automatically so it can't clash. If the file has a mistake, the app shows an orange message at the top and falls back to built-in teams. The file explains its own fields in the `_readme` section at the top.
@@ -83,13 +92,13 @@ The names in the file are made up. Do not put real rosters in it (see Data prote
 
 ## Rules assumptions
 
-These reflect current BVA practice and are configurable where noted.
+These reflect current BVA practice. The numbers can be changed in Match settings; these are the defaults.
 
-- Rally scoring: sets to 25, win by 2; the deciding set is played to 15, win by 2
+- Rally scoring: sets to 25, win by 2; the deciding set (tie-break) is played to 15, win by 2 unless the option is switched off
 - Best of 3 sets (configurable to best of 5)
 - Teams change ends at 8 points in the deciding set
 - Two time-outs per team per set
-- Six substitutions per team per set; each starting position may be substituted twice; only the original starter can return
+- Eight substitutions per team per set; each starting position may be substituted twice; only the original starter can return
 - The libero is listed on the sheet but not tracked on court (assumed to replace the middle in the back row when not serving)
 
 ## Architecture
@@ -99,16 +108,22 @@ app/
   lib/
     match_engine.dart      Events, rules, match state and saving. No UI.
     demo_data.dart         Reads the editable teams / match details file
+    match_rules.dart       The configurable rules (points, time-outs, subs)
     models.dart            Player, TeamSheet
     screens/
+      home_screen.dart     The main menu the app opens on
       match_screen.dart    The table screen
+      settings_screen.dart Format and rules
+      team_sheets_screen.dart  Teams, players, line-ups and officials
       sign_off_screen.dart Drawn signatures
+      notes_screen.dart    Free-text notes
     scoresheet/
       scoresheet_data.dart       Works out what goes on the sheet from the events
       scoresheet_layout.dart     Loads the measured box positions
       scoresheet_pdf.dart        Draws everything onto the blank sheet
       scoresheet_publisher.dart  Builds the PDF and opens the share sheet
       signature_slots.dart       Ids of the signature boxes
+      remarks_text.dart          Fits the notes onto the REMARKS lines
   assets/
     demo/demo_data.json
     scoresheet/bva_3set_blank.jpg      The blank BVA sheet, as a picture
@@ -137,7 +152,7 @@ flutter test
 flutter run
 ```
 
-In a debug build the app bar also shows a PDF button that publishes the scoresheet at any time, and each finished service round prints a line like `[service] Set 1 Home I #1: 3` to the terminal.
+In a debug build each finished service round also prints a line like `[service] Set 1 Home I #1: 3` to the terminal.
 
 ## Roadmap
 
@@ -154,7 +169,7 @@ cd app
 flutter test
 ```
 
-The engine tests cover scoring, serving and rotation, sides and first-serve order, substitutions, time-outs, service rounds and saving. The scoresheet tests cover the data builder (including the change of ends) and PDF generation. The demo data tests check the file reader and the shipped file.
+The engine tests cover scoring, serving and rotation, sides and first-serve order, substitutions, time-outs, service rounds and saving. The scoresheet tests cover the data builder (including the change of ends) and PDF generation, and the remarks tests cover how notes are wrapped and shrunk. The demo data tests check the file reader and the shipped file.
 
 Still to do: replay real completed scoresheets as fixtures. The full event list is replayed and the engine's output (service rounds, set scores, totals) is compared with what was written on paper.
 
@@ -162,7 +177,7 @@ Still to do: replay real completed scoresheets as fixtures. The full event list 
 
 Rosters contain personal data and may include under-18s. Store only what is needed, restrict who can see it, and delete old data. Agree with the association who is responsible for the data before going live.
 
-Drawn signatures are personal data too. They are stored on the phone with the match and cleared by Reset Match.
+Drawn signatures and notes are personal data too. Notes may contain names of players, including juniors (under 18s). Both are stored on the phone with the match, printed on the PDF, and cleared by Reset Match.
 
 Do not commit real match data, rosters, or scanned scoresheets to this repository. `assets/demo/demo_data.json` must contain made-up names only.
 

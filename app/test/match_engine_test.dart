@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 // Adjust these paths if your test folder isn't next to lib/.
 import 'package:spikescore/match_engine.dart';
+import 'package:spikescore/match_rules.dart';
 import 'package:spikescore/models.dart';
 
 Future<MatchEngine> newEngine() async {
@@ -419,21 +420,24 @@ void main() {
       expect(lineup(e, Team.home).contains(1), isTrue);
     });
 
-    test('max six subs per set', () async {
+    test('max eight subs per set by default', () async {
       final e = await newEngine();
       e.setTeams(bigSheet('H', 1), bigSheet('A', 21));
 
-      // Six different starters swap with six different bench players.
+      // Six different starters swap with six different bench players...
       for (var i = 0; i < 6; i++) {
         await e.executeSubstitution(Team.home, 1 + i, 7 + i);
       }
-      expect(e.homeSubCount, 6);
+      // ...and two of them come straight back.
+      await e.executeSubstitution(Team.home, 7, 1);
+      await e.executeSubstitution(Team.home, 8, 2);
+      expect(e.homeSubCount, 8);
       expect(e.canTakeSub(Team.home), isFalse);
 
-      // A seventh (even a legal re-entry) is rejected.
-      await e.executeSubstitution(Team.home, 7, 1);
-      expect(e.homeSubCount, 6);
-      expect(lineup(e, Team.home).contains(7), isTrue);
+      // A ninth (even a legal re-entry) is rejected.
+      await e.executeSubstitution(Team.home, 9, 3);
+      expect(e.homeSubCount, 8);
+      expect(lineup(e, Team.home).contains(9), isTrue);
     });
 
     test('undoing a sub puts everything back', () async {
@@ -760,46 +764,185 @@ void main() {
     });
   });
 
-  group('notes', () {
-    test('start empty and can be changed', () async {
+  group('rules', () {
+    test('start as the standard BVA rules', () async {
       final e = await newEngine();
-      expect(e.notes, '');
-      await e.setNotes('Junior #7 D. Evans');
-      expect(e.notes, 'Junior #7 D. Evans');
+      expect(e.rules, MatchRules.defaults);
+      expect(e.maxSets, 3);
+      expect(e.targetPoints, 25);
     });
 
-    test('survive a restart', () async {
-      final a = await newEngine();
-      await a.setNotes('Set 2 delayed 5 minutes');
+    test('points per set decides when a set is over', () async {
+      final e = await newEngine();
+      await e.setRules(const MatchRules(pointsPerSet: 21));
+      expect(e.targetPoints, 21);
 
-      final b = await newEngine();
-      expect(b.notes, 'Set 2 delayed 5 minutes');
+      await playSet(e, winner: Team.home, loserPoints: 15);
+      expect(e.homeScore, 21);
+      expect(e.isSetComplete, isTrue);
     });
 
-    test('are not touched by undo, and reset clears them', () async {
+    test('the deciding set has its own points and change of ends', () async {
+      final e = await newEngine();
+      await e.setRules(const MatchRules(pointsPerSet: 15, decidingSetPoints: 11));
+      await playSet(e, winner: Team.home);
+      await e.startNewSet();
+      await playSet(e, winner: Team.away);
+      await e.startNewSet();
+
+      expect(e.currentSet, 3);
+      expect(e.targetPoints, 11);
+
+      await e.chooseSides(Team.home);
+      await e.chooseFirstServe(Team.home);
+      await score(e, Team.away, 2);
+      await score(e, Team.home, 5);
+      expect(e.leftTeam, Team.home); // 5:2, not yet
+
+      await e.scorePoint(Team.home); // 6 is half of 11, rounded up
+      expect(e.leftTeam, Team.away);
+
+      await score(e, Team.home, 5);
+      expect(e.homeScore, 11);
+      expect(e.isSetComplete, isTrue);
+    });
+
+    test('the tie-break can be won without a 2 point lead', () async {
+      final e = await newEngine();
+      await e.setRules(const MatchRules(
+        pointsPerSet: 15,
+        decidingSetPoints: 11,
+        decidingSetWinByTwo: false,
+      ));
+      await playSet(e, winner: Team.home);
+      await e.startNewSet();
+      await playSet(e, winner: Team.away);
+      await e.startNewSet();
+      await e.chooseSides(Team.home);
+      await e.chooseFirstServe(Team.home);
+
+      for (var i = 0; i < 10; i++) {
+        await e.scorePoint(Team.away);
+        await e.scorePoint(Team.home);
+      }
+      expect(e.isSetComplete, isFalse); // 10:10
+
+      await e.scorePoint(Team.home); // 11:10
+      expect(e.isSetComplete, isTrue);
+      expect(e.winningTeam, Team.home);
+    });
+
+    test('by default the tie-break is won by 2 points', () async {
+      final e = await newEngine();
+      await e.setRules(const MatchRules(pointsPerSet: 15, decidingSetPoints: 11));
+      await playSet(e, winner: Team.home);
+      await e.startNewSet();
+      await playSet(e, winner: Team.away);
+      await e.startNewSet();
+      await e.chooseSides(Team.home);
+      await e.chooseFirstServe(Team.home);
+
+      for (var i = 0; i < 10; i++) {
+        await e.scorePoint(Team.away);
+        await e.scorePoint(Team.home);
+      }
+      await e.scorePoint(Team.home); // 11:10
+      expect(e.isSetComplete, isFalse);
+
+      await e.scorePoint(Team.home); // 12:10
+      expect(e.isSetComplete, isTrue);
+    });
+
+    test('switching win by 2 off only affects the tie-break, not normal sets', () async {
+      final e = await newEngine();
+      await e.setRules(const MatchRules(pointsPerSet: 15, decidingSetWinByTwo: false));
+      await e.chooseFirstServe(Team.home);
+
+      await score(e, Team.away, 14);
+      await score(e, Team.home, 15);
+      expect(e.isSetComplete, isFalse); // 15:14 is not enough in a normal set
+
+      await e.scorePoint(Team.home); // 16:14
+      expect(e.isSetComplete, isTrue);
+    });
+
+    test('time-outs per set follow the rules', () async {
+      final e = await newEngine();
+      await e.setRules(const MatchRules(timeOutsPerSet: 1));
+      expect(await e.takeTimeout(Team.home), isTrue);
+      expect(await e.takeTimeout(Team.home), isFalse);
+      expect(e.homeTimeOuts, 1);
+    });
+
+    test('no time-outs at all when the rules say zero', () async {
+      final e = await newEngine();
+      await e.setRules(const MatchRules(timeOutsPerSet: 0));
+      expect(await e.takeTimeout(Team.away), isFalse);
+    });
+
+    test('substitutions per set follow the rules', () async {
+      final e = await newEngine();
+      await e.setRules(const MatchRules(subsPerSet: 2));
+      await e.executeSubstitution(Team.home, 1, 13);
+      await e.executeSubstitution(Team.home, 13, 1);
+      expect(e.homeSubCount, 2);
+      expect(e.canTakeSub(Team.home), isFalse);
+
+      await e.executeSubstitution(Team.home, 3, 15); // over the limit
+      expect(e.homeSubCount, 2);
+    });
+
+    test('are locked once the match has started', () async {
       final e = await newEngine();
       await e.chooseFirstServe(Team.home);
-      await e.setNotes('keep me');
-      await e.undo();
-      expect(e.notes, 'keep me');
+      await e.setRules(const MatchRules(pointsPerSet: 21));
+      expect(e.rules, MatchRules.defaults);
+    });
+
+    test('are kept after a restart, with the format', () async {
+      const custom = MatchRules(pointsPerSet: 21, decidingSetPoints: 11, subsPerSet: 4);
+      final a = await newEngine();
+      await a.setMatchMode(MatchMode.nationalLeague5Set);
+      await a.setRules(custom);
+
+      final b = await newEngine();
+      expect(b.rules, custom);
+      expect(b.matchMode, MatchMode.nationalLeague5Set);
+      expect(b.maxSets, 5);
+    });
+
+    test('are kept when the match is reset', () async {
+      const custom = MatchRules(pointsPerSet: 21);
+      final e = await newEngine();
+      await e.setRules(custom);
+      await e.chooseFirstServe(Team.home);
+      await e.scorePoint(Team.home);
 
       await e.resetMatch();
-      expect(e.notes, '');
-      expect((await newEngine()).notes, '');
+      expect(e.rules, custom);
+
+      // ...and can be changed again now that nothing has been played.
+      await e.setRules(const MatchRules(pointsPerSet: 18));
+      expect(e.rules.pointsPerSet, 18);
     });
 
-    test('do not rebuild the screen (safe to save while a page closes)', () async {
-      final e = await newEngine();
-      var calls = 0;
-      e.addListener(() => calls++);
-      await e.setNotes('quiet');
-      expect(calls, 0);
-    });
+    test('are kept when the teams change and the old match is dropped', () async {
+      const custom = MatchRules(pointsPerSet: 21);
+      final prefs = await SharedPreferences.getInstance();
 
-    test('do not lock the match format', () async {
-      final e = await newEngine();
-      await e.setNotes('hello');
-      expect(e.matchStarted, isFalse);
+      final a = MatchEngine(prefs: prefs);
+      await a.setRules(custom);
+      await a.chooseFirstServe(Team.home);
+      await a.scorePoint(Team.home);
+
+      final other = TeamSheet(
+        teamName: 'Someone Else',
+        roster: a.homeTeamSheet.roster,
+        startingLineup: a.homeTeamSheet.startingLineup,
+      );
+      final changed = MatchEngine(prefs: prefs, homeTeam: other);
+      expect(changed.homeScore, 0); // the old match no longer fits
+      expect(changed.rules, custom); // but the settings are still there
     });
   });
 

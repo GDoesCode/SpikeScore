@@ -91,7 +91,11 @@ class DemoData {
   final MatchInfo info;
   final DemoTeam home;
   final DemoTeam away;
-  const DemoData(this.info, this.home, this.away);
+
+  /// Every team in the file, including the two that are playing.
+  final List<DemoTeam> teams;
+
+  const DemoData(this.info, this.home, this.away, this.teams);
 
   /// Throws a [FormatException] with a plain-English message if the file has a
   /// problem the app can't work around.
@@ -124,7 +128,7 @@ class DemoData {
     if (identical(home, away)) {
       away = teams.firstWhere((t) => !identical(t, home));
     }
-    return DemoData(MatchInfo.fromJson(match), home, away);
+    return DemoData(MatchInfo.fromJson(match), home, away, teams);
   }
 
   static DemoTeam _team(Map<String, dynamic> j) {

@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 // Adjust these paths if your test folder isn't next to lib/.
 import 'package:spikescore/demo_data.dart';
 import 'package:spikescore/match_engine.dart';
+import 'package:spikescore/match_rules.dart';
 import 'package:spikescore/scoresheet/scoresheet_data.dart';
 import 'package:spikescore/scoresheet/scoresheet_pdf.dart';
 import 'package:spikescore/scoresheet/scoresheet_publisher.dart';
@@ -137,6 +138,85 @@ void main() {
       expect(set3.firstServe, Team.home);
     });
 
+    test('the rules decide when a set is complete on the sheet', () async {
+      final e = await newEngine();
+      await e.setRules(const MatchRules(pointsPerSet: 21));
+      await playSet(e, winner: Team.home, loserPoints: 15);
+
+      final set1 = ScoresheetData.fromEngine(e).sets.single;
+      expect(set1.complete, isTrue);
+      expect(set1.score[Team.home], 21);
+      expect(set1.winner, Team.home);
+    });
+
+    test('a tie-break without win by 2 is complete at the target', () async {
+      final e = await newEngine();
+      await e.setRules(const MatchRules(
+        pointsPerSet: 15,
+        decidingSetPoints: 11,
+        decidingSetWinByTwo: false,
+      ));
+      await playSet(e, winner: Team.home);
+      await e.startNewSet();
+      await playSet(e, winner: Team.away);
+      await e.startNewSet();
+      await e.chooseSides(Team.home);
+      await e.chooseFirstServe(Team.home);
+      for (var i = 0; i < 10; i++) {
+        await e.scorePoint(Team.away);
+        await e.scorePoint(Team.home);
+      }
+      await e.scorePoint(Team.home); // 11:10
+
+      final data = ScoresheetData.fromEngine(e);
+      expect(data.sets[2].complete, isTrue);
+      expect(data.sets[2].winner, Team.home);
+      expect(data.matchComplete, isTrue);
+    });
+
+    test('the team receiving first skips box 1 of service order I', () async {
+      final e = await newEngine();
+      await e.chooseFirstServe(Team.home); // so away receives first
+      for (var i = 0; i < 6; i++) {
+        await e.scorePoint(Team.away); // side-out to away
+        await e.scorePoint(Team.home); // and back to home
+      }
+
+      final set1 = ScoresheetData.fromEngine(e).sets.single;
+      expect(set1.receivesFirst(Team.away), isTrue);
+      expect(set1.receivesFirst(Team.home), isFalse);
+
+      // Home served first: I to VI, then I again, which is its 2nd box.
+      final home = set1.rounds[Team.home]!;
+      expect(home.map((r) => r.position), [1, 2, 3, 4, 5, 6, 1]);
+      expect(home.map((r) => r.cell), [0, 0, 0, 0, 0, 0, 1]);
+
+      // Away received first: II to VI, then I. Box 1 of I is crossed out, so
+      // that player's first real service is written in box 2.
+      final away = set1.rounds[Team.away]!;
+      expect(away.map((r) => r.position), [2, 3, 4, 5, 6, 1]);
+      expect(away.map((r) => r.cell), [0, 0, 0, 0, 0, 1]);
+    });
+
+    test('nobody receives first until the first serve is chosen', () async {
+      final e = await newEngine();
+      final set1 = ScoresheetData.fromEngine(e).sets.single;
+      expect(set1.receivesFirst(Team.home), isFalse);
+      expect(set1.receivesFirst(Team.away), isFalse);
+    });
+
+    test('in set 2 the other team is the one receiving first', () async {
+      final e = await newEngine();
+      await e.chooseFirstServe(Team.home);
+      await playSet(e, winner: Team.home);
+      await e.startNewSet();
+
+      final data = ScoresheetData.fromEngine(e);
+      expect(data.sets[0].receivesFirst(Team.away), isTrue);
+      expect(data.sets[1].receivesFirst(Team.home), isTrue);
+      expect(data.sets[1].receivesFirst(Team.away), isFalse);
+    });
+
     test('deciding set: change of sides at 8 splits the rounds', () async {
       final e = await newEngine();
       await playSet(e, winner: Team.home);
@@ -167,6 +247,9 @@ void main() {
       // Home's second round was still going at the change, so it belongs to
       // the second half of the set.
       expect([home[1].position, home[1].endOwn, home[1].afterChange], [2, 15, true]);
+      // Each block of the sheet counts its own boxes: the second half starts again at box 1.
+      expect(home[0].cell, 0);
+      expect(home[1].cell, 0);
 
       final away = set3.rounds[Team.away]!;
       expect(away.length, 1);

@@ -1,4 +1,7 @@
+<<<<<<< Updated upstream
 import 'package:flutter/foundation.dart' show kDebugMode;
+=======
+>>>>>>> Stashed changes
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -8,15 +11,15 @@ import '../match_engine.dart';
 import '../models.dart';
 import '../scoresheet/scoresheet_publisher.dart';
 import 'notes_screen.dart';
+import 'settings_screen.dart';
 import 'sign_off_screen.dart';
 
 enum _MenuAction {
   notes,
   signOff,
-  formatLocal,
-  formatNational,
+  settings,
   endSet,
-  debugPublish,
+  publish,
   reset,
 }
 
@@ -98,16 +101,13 @@ class _MatchScreenState extends State<MatchScreen> {
       case _MenuAction.signOff:
         Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SignOffScreen()));
         break;
-      case _MenuAction.formatLocal:
-        engine.setMatchMode(MatchMode.localLeague3Set);
-        break;
-      case _MenuAction.formatNational:
-        engine.setMatchMode(MatchMode.nationalLeague5Set);
+      case _MenuAction.settings:
+        Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen()));
         break;
       case _MenuAction.endSet:
         _showNewSetConfirmationModal(context);
         break;
-      case _MenuAction.debugPublish:
+      case _MenuAction.publish:
         ScoresheetPublisher.publish(context, engine);
         break;
       case _MenuAction.reset:
@@ -120,11 +120,15 @@ class _MatchScreenState extends State<MatchScreen> {
   Widget build(BuildContext context) {
     final engine = context.watch<MatchEngine>();
 
+    // Time-outs and subs only make sense once the coin toss is done: sides
+    // chosen and first serve picked (this repeats for the deciding set).
+    final setupDone = !engine.needsSides && !engine.needsFirstServe;
+
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
         title: Text(
-          'SpikeScore — Set ${engine.currentSet} (${engine.matchMode == MatchMode.localLeague3Set ? "3-Set" : "5-Set"})',
+          'SpikeScore — Set ${engine.currentSet} (${engine.maxSets}-Set)',
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         backgroundColor: const Color(0xFF1E1E1E),
@@ -143,23 +147,8 @@ class _MatchScreenState extends State<MatchScreen> {
             itemBuilder: (context) => [
               _menuItem(_MenuAction.notes, Icons.edit_note, 'Notes'),
               _menuItem(_MenuAction.signOff, Icons.draw, 'Sign-off (captains, officials)'),
-              const PopupMenuDivider(),
-              _menuItem(
-                _MenuAction.formatLocal,
-                engine.matchMode == MatchMode.localLeague3Set
-                    ? Icons.check_box
-                    : Icons.check_box_outline_blank,
-                'Local league (3 sets, set 3 to 15)',
-                enabled: !engine.matchStarted,
-              ),
-              _menuItem(
-                _MenuAction.formatNational,
-                engine.matchMode == MatchMode.nationalLeague5Set
-                    ? Icons.check_box
-                    : Icons.check_box_outline_blank,
-                'National league (5 sets, set 5 to 15)',
-                enabled: !engine.matchStarted,
-              ),
+              _menuItem(_MenuAction.publish, Icons.picture_as_pdf, 'Publish scoresheet (PDF)'),
+              _menuItem(_MenuAction.settings, Icons.tune, 'Match settings'),
               const PopupMenuDivider(),
               _menuItem(
                 _MenuAction.endSet,
@@ -167,12 +156,6 @@ class _MatchScreenState extends State<MatchScreen> {
                 'End set',
                 enabled: engine.isSetComplete && !engine.isMatchComplete,
               ),
-              if (kDebugMode)
-                _menuItem(
-                  _MenuAction.debugPublish,
-                  Icons.picture_as_pdf,
-                  'Debug: publish scoresheet now',
-                ),
               const PopupMenuDivider(),
               _menuItem(_MenuAction.reset, Icons.refresh, 'Reset match', danger: true),
             ],
@@ -236,21 +219,25 @@ class _MatchScreenState extends State<MatchScreen> {
                   ),
                 ),
                 ElevatedButton.icon(
-                  onPressed: () => _showTimeoutModal(context),
+                  onPressed: setupDone ? () => _showTimeoutModal(context) : null,
                   icon: const Icon(Icons.timer),
                   label: const Text('Timeout'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.orange[800],
                     foregroundColor: Colors.white,
+                    disabledBackgroundColor: Colors.grey[850],
+                    disabledForegroundColor: Colors.white24,
                   ),
                 ),
                 ElevatedButton.icon(
-                  onPressed: () => _showSubTeamModal(context),
+                  onPressed: setupDone ? () => _showSubTeamModal(context) : null,
                   icon: const Icon(Icons.swap_horiz),
                   label: const Text('Sub'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.blue[800],
                     foregroundColor: Colors.white,
+                    disabledBackgroundColor: Colors.grey[850],
+                    disabledForegroundColor: Colors.white24,
                   ),
                 ),
               ],
@@ -327,14 +314,14 @@ class _MatchScreenState extends State<MatchScreen> {
                     const Icon(Icons.timer, size: 16, color: Colors.white54),
                     const SizedBox(width: 6),
                     Text(
-                      'Timeouts: ${engine.timeOutsOf(team)}/2',
+                      'Timeouts: ${engine.timeOutsOf(team)}/${engine.rules.timeOutsPerSet}',
                       style: const TextStyle(color: Colors.white54, fontSize: 14),
                     ),
                   ],
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Subs: ${engine.subCountOf(team)}/6',
+                  'Subs: ${engine.subCountOf(team)}/${engine.rules.subsPerSet}',
                   style: const TextStyle(color: Colors.white54, fontSize: 14),
                 ),
                 const SizedBox(height: 10),
@@ -701,7 +688,7 @@ class _MatchScreenState extends State<MatchScreen> {
                           backgroundColor: team.accent,
                           padding: const EdgeInsets.symmetric(vertical: 14),
                         ),
-                        onPressed: engine.timeOutsOf(team) >= 2
+                        onPressed: engine.timeOutsOf(team) >= engine.rules.timeOutsPerSet
                             ? null
                             : () {
                                 HapticFeedback.mediumImpact();
@@ -709,7 +696,7 @@ class _MatchScreenState extends State<MatchScreen> {
                                 engine.takeTimeout(team);
                               },
                         child: Text(
-                          '${team.label} (${engine.timeOutsOf(team)}/2)',
+                          '${team.label} (${engine.timeOutsOf(team)}/${engine.rules.timeOutsPerSet})',
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 16,
@@ -776,7 +763,7 @@ class _MatchScreenState extends State<MatchScreen> {
                                 _showPlayerOffModal(context, team);
                               },
                         child: Text(
-                          '${team.label} (${engine.subCountOf(team)}/6)',
+                          '${team.label} (${engine.subCountOf(team)}/${engine.rules.subsPerSet})',
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 16,

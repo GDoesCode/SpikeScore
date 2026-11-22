@@ -5,6 +5,7 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'demo_data.dart';
+import 'match_rules.dart';
 import 'models.dart';
 
 enum MatchMode { localLeague3Set, nationalLeague5Set }
@@ -234,11 +235,13 @@ class _Derived {
 class MatchEngine extends ChangeNotifier {
   static const _storageKey = 'spikescore_match_v4';
 
-  /// In the deciding set the teams change ends when a team reaches this score.
-  static const int changeSidesAt = 8;
+  /// Where the format and rules (the Settings screen) are kept. Separate from
+  /// the match so they survive a reset or a change of teams.
+  static const String _settingsKey = 'spikescore_settings_v1';
 
   SharedPreferences? _prefs;
   MatchMode _matchMode = MatchMode.localLeague3Set;
+  MatchRules _rules = const MatchRules();
   final List<MatchEvent> _events = [];
   late _Derived _s;
 
@@ -265,6 +268,10 @@ class MatchEngine extends ChangeNotifier {
   /// Coaches and other team officials for the sheet (from the demo data file).
   Map<Team, List<Official>> officials = {Team.home: [], Team.away: []};
 
+  /// Every team in the demo data file (empty if there isn't one), for the Team
+  /// sheets screen.
+  List<DemoTeam> teamLibrary = const [];
+
   /// Set when the demo data file exists but couldn't be used. The screen shows
   /// it so a typo in the file isn't silently ignored.
   String? demoDataError;
@@ -289,6 +296,8 @@ class MatchEngine extends ChangeNotifier {
     if (awayTeam != null) awayTeamSheet = awayTeam;
     _s = _replay();
     if (prefs != null) {
+      _restoreSettings(prefs);
+      _s = _replay();
       _restore(prefs);
     } else {
       _loadAsync();
@@ -349,6 +358,10 @@ class MatchEngine extends ChangeNotifier {
   Future<void> _loadAsync() async {
     final prefs = await SharedPreferences.getInstance();
     _prefs = prefs;
+    if (_events.isEmpty) {
+      _restoreSettings(prefs);
+      _s = _replay();
+    }
     // The teams must be in place before the saved match is replayed on them.
     await _loadDemoData();
     // If the scorer already tapped before loading finished, keep what they
@@ -376,6 +389,7 @@ class MatchEngine extends ChangeNotifier {
       homeTeamSheet = data.home.sheet;
       awayTeamSheet = data.away.sheet;
       matchInfo = data.info;
+      teamLibrary = data.teams;
       officials = {Team.home: data.home.officials, Team.away: data.away.officials};
       _s = _replay();
       demoDataError = null;
@@ -413,6 +427,10 @@ class MatchEngine extends ChangeNotifier {
     try {
       final data = jsonDecode(raw) as Map<String, dynamic>;
       _matchMode = MatchMode.values.byName(data['mode'] as String);
+      final savedRules = data['rules'];
+      if (savedRules is Map<String, dynamic>) {
+        _rules = MatchRules.fromJson(savedRules);
+      }
       final events = (data['events'] as List)
           .map((e) => MatchEvent.fromJson(e as Map<String, dynamic>))
           .toList();
@@ -454,6 +472,7 @@ class MatchEngine extends ChangeNotifier {
       _storageKey,
       jsonEncode({
         'mode': _matchMode.name,
+        'rules': _rules.toJson(),
         'teams': _teamsKey(),
         'events': _events.map((e) => e.toJson()).toList(),
         'signatures': _signatures,
@@ -556,8 +575,8 @@ class MatchEngine extends ChangeNotifier {
             }
             if (s.currentSet == _maxSets &&
                 !s.changeDone &&
-                (s.teams[Team.home]!.score >= changeSidesAt ||
-                    s.teams[Team.away]!.score >= changeSidesAt)) {
+                (s.teams[Team.home]!.score >= _rules.changeEndsAt ||
+                    s.teams[Team.away]!.score >= _rules.changeEndsAt)) {
               // Deciding set: the teams change ends when a team reaches 8.
               s.changeDone = true;
               s.leftTeam = s.leftTeam.other;
@@ -658,13 +677,18 @@ class MatchEngine extends ChangeNotifier {
 
   int get _maxSets => _matchMode == MatchMode.localLeague3Set ? 3 : 5;
 
-  int _targetFor(int setNumber) => setNumber == _maxSets ? 15 : 25;
+  int _targetFor(int setNumber) =>
+      setNumber == _maxSets ? _rules.decidingSetPoints : _rules.pointsPerSet;
 
   bool _isComplete(_Derived s) {
     final home = s.teams[Team.home]!.score;
     final away = s.teams[Team.away]!.score;
     final target = _targetFor(s.currentSet);
-    return (home >= target || away >= target) && (home - away).abs() >= 2;
+    // Normal sets are always won by 2. The deciding set (the tie-break) is
+    // too, unless the rules say the first team to the target wins it.
+    final needsTwoClear = s.currentSet != _maxSets || _rules.decidingSetWinByTwo;
+    return (home >= target || away >= target) &&
+        (home - away).abs() >= (needsTwoClear ? 2 : 1);
   }
 
   /// Starts a new service round for [team], who is about to serve.
@@ -695,7 +719,47 @@ class MatchEngine extends ChangeNotifier {
     _matchMode = mode;
     _s = _replay();
     notifyListeners();
+    await _saveSettings();
     await _save();
+  }
+
+  /// The rules in force: points per set, deciding set, time-outs, subs.
+  MatchRules get rules => _rules;
+
+  /// Number of sets in the match (3 or 5, from the format).
+  int get maxSets => _maxSets;
+
+  /// Changes the rules. Ignored once the match has started, because it would
+  /// change who has won what.
+  Future<void> setRules(MatchRules rules) async {
+    if (matchStarted) return;
+    _rules = rules.clamped();
+    _s = _replay();
+    notifyListeners();
+    await _saveSettings();
+    await _save();
+  }
+
+  void _restoreSettings(SharedPreferences prefs) {
+    final raw = prefs.getString(_settingsKey);
+    if (raw == null) return;
+    try {
+      final data = jsonDecode(raw) as Map<String, dynamic>;
+      final mode = data['mode'];
+      if (mode is String) _matchMode = MatchMode.values.byName(mode);
+      final rules = data['rules'];
+      if (rules is Map<String, dynamic>) _rules = MatchRules.fromJson(rules);
+    } catch (e) {
+      debugPrint('SpikeScore: could not restore settings: $e');
+    }
+  }
+
+  Future<void> _saveSettings() async {
+    final prefs = _prefs ??= await SharedPreferences.getInstance();
+    await prefs.setString(
+      _settingsKey,
+      jsonEncode({'mode': _matchMode.name, 'rules': _rules.toJson()}),
+    );
   }
 
   bool get isDecidingSet => _s.currentSet == _maxSets;
@@ -859,7 +923,7 @@ class MatchEngine extends ChangeNotifier {
   }
 
   Future<bool> takeTimeout(Team team) async {
-    if (timeOutsOf(team) >= 2) return false;
+    if (timeOutsOf(team) >= _rules.timeOutsPerSet) return false;
     await _record(MatchEvent(EventType.timeout, team: team));
     return true;
   }
@@ -890,7 +954,7 @@ class MatchEngine extends ChangeNotifier {
   // Substitutions
   // ---------------------------------------------------------------------------
 
-  bool canTakeSub(Team team) => subCountOf(team) < 6;
+  bool canTakeSub(Team team) => subCountOf(team) < _rules.subsPerSet;
 
   /// Players on court, in court-position order (I, II, III, IV, V, VI).
   List<Player> getOnCourtPlayers(Team team) =>
