@@ -220,4 +220,59 @@ void main() {
       expect(sheet.sets.first.score[Team.away], 2);
     });
   });
+
+  group('most valuable players', () {
+    test('only players who were on court can be picked', () async {
+      final e = await newEngine();
+      await coinToss(e);
+      await e.waivePreMatchSignatures(referee: '1st referee');
+      await e.executeSubstitution(Team.away, 4, 14);
+      await playMatch(e);
+
+      final away = e.playersWhoPlayed(Team.away).map((p) => p.number).toSet();
+      expect(away, {2, 4, 6, 8, 10, 12, 14});
+      expect(e.playersWhoPlayed(Team.home).map((p) => p.number).toSet(),
+          {1, 3, 5, 7, 9, 11});
+
+      await e.setMvp(Team.away, 16); // never played
+      expect(e.mvpOf(Team.away), isNull);
+      await e.setMvp(Team.away, 14);
+      expect(e.mvpOf(Team.away), 14);
+    });
+
+    test('are picked only once the match is over', () async {
+      final e = await newEngine();
+      await coinToss(e);
+      await e.setMvp(Team.home, 1);
+      expect(e.mvpOf(Team.home), isNull);
+    });
+
+    test('a new pick wipes the picking captain\'s signature', () async {
+      final e = await newEngine();
+      await playMatch(e);
+      await e.setMvp(Team.away, 2);
+      await e.setSignature(SignatureSlots.approvalCaptain(Team.home), ink);
+      await e.setSignature(SignatureSlots.approvalCaptain(Team.away), ink);
+
+      await e.setMvp(Team.away, 4);
+      expect(e.signatures.containsKey(SignatureSlots.approvalCaptain(Team.home)),
+          isFalse);
+      expect(e.signatures.containsKey(SignatureSlots.approvalCaptain(Team.away)),
+          isTrue);
+    });
+
+    test('survive a restart, reset clears them, and the sheet has them',
+        () async {
+      final e = await newEngine();
+      await playMatch(e);
+      await e.setMvp(Team.home, 7);
+      await e.setMvp(Team.away, 2);
+      final reloaded = await newEngine();
+      expect(reloaded.mvpOf(Team.home), 7);
+      expect(ScoresheetData.fromEngine(reloaded).mvp,
+          {Team.home: 7, Team.away: 2});
+      await reloaded.resetMatch();
+      expect(reloaded.mvpOf(Team.home), isNull);
+    });
+  });
 }

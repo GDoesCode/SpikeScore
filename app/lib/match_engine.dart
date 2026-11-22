@@ -273,6 +273,11 @@ class MatchEngine extends ChangeNotifier {
   /// pre-match signatures (for example a captain who hasn't arrived yet).
   bool _preMatchWaived = false;
 
+  /// Most valuable player of each team (jersey number), chosen at the end of
+  /// the match by the opposing captain, as the sheet says ("For Team A,
+  /// nominated by team B").
+  final Map<Team, int> _mvp = {};
+
   late TeamSheet homeTeamSheet;
   late TeamSheet awayTeamSheet;
 
@@ -465,11 +470,16 @@ class MatchEngine extends ChangeNotifier {
     _signatures.clear();
     _notes = '';
     _preMatchWaived = false;
+    _mvp.clear();
     try {
       final data = jsonDecode(raw) as Map<String, dynamic>;
       final savedNotes = data['notes'];
       if (savedNotes is String) _notes = savedNotes;
       _preMatchWaived = data['preMatchWaived'] == true;
+      final mvp = data['mvp'];
+      if (mvp is Map<String, dynamic>) {
+        mvp.forEach((t, n) => _mvp[Team.values.byName(t)] = n as int);
+      }
       final saved = data['signatures'];
       if (saved is Map<String, dynamic>) {
         saved.forEach((id, strokes) {
@@ -498,6 +508,7 @@ class MatchEngine extends ChangeNotifier {
         'signatures': _signatures,
         'notes': _notes,
         'preMatchWaived': _preMatchWaived,
+        'mvp': {for (final e in _mvp.entries) e.key.name: e.value},
       }),
     );
   }
@@ -993,6 +1004,7 @@ class MatchEngine extends ChangeNotifier {
     _signatures.clear();
     _notes = '';
     _preMatchWaived = false;
+    _mvp.clear();
     _s = _replay();
     notifyListeners();
     await _save();
@@ -1104,6 +1116,41 @@ class MatchEngine extends ChangeNotifier {
     _clearPostMatchSignatures();
     _addRemark(referee, 'signed sheet unlocked for a correction; '
         'approval signatures cleared.');
+    notifyListeners();
+    await _save();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Most valuable players
+  // ---------------------------------------------------------------------------
+
+  /// The MVP of [team], if one has been chosen.
+  int? mvpOf(Team team) => _mvp[team];
+
+  /// Everyone on [team] who was on court at some point: the starters and
+  /// anyone who came on as a substitute.
+  List<Player> playersWhoPlayed(Team team) {
+    final numbers = <int>{
+      ...sheetOf(team).startingLineup,
+      for (final e in _events)
+        if (e.type == EventType.sub && e.team == team && e.playerOn != null)
+          e.playerOn!,
+    };
+    return [
+      for (final p in sheetOf(team).roster)
+        if (numbers.contains(p.number)) p
+    ];
+  }
+
+  /// Records [player] as [team]'s MVP. Only once the match is over, and only
+  /// a player who played. The opposing captain picks it and then signs, so a
+  /// new pick wipes that captain's approval signature.
+  Future<void> setMvp(Team team, int player) async {
+    if (!isMatchComplete) return;
+    if (!playersWhoPlayed(team).any((p) => p.number == player)) return;
+    if (_mvp[team] == player) return;
+    _mvp[team] = player;
+    _signatures.remove(SignatureSlots.approvalCaptain(team.other));
     notifyListeners();
     await _save();
   }

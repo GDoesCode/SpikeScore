@@ -83,4 +83,39 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Waiting for the team sheet signatures'), findsOneWidget);
   });
+
+  testWidgets('a captain picks the other team\'s MVP, then signs', (tester) async {
+    landscapePhone(tester);
+    final e = MatchEngine(prefs: await SharedPreferences.getInstance());
+    await e.chooseSides(Team.home);
+    await e.chooseFirstServe(Team.home);
+    for (var set = 1; set <= 2; set++) {
+      if (e.needsFirstServe) await e.chooseFirstServe(Team.home);
+      while (!e.isSetComplete) {
+        await e.scorePoint(Team.home);
+      }
+      if (!e.isMatchComplete) await e.startNewSet();
+    }
+    await tester.pumpWidget(
+        app(e, const SignOffScreen(stage: SignOffStage.postMatch)));
+    final tile = find.text('Home Team captain');
+    await tester.scrollUntilVisible(tile, 100);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('MVP for Away Team: not picked yet'), findsOneWidget);
+
+    await tester.tap(tile);
+    await tester.pumpAndSettle();
+    expect(find.text('MVP for Away Team'), findsOneWidget);
+    expect(find.text('#16  Q. Hall'), findsNothing); // never played
+    await tester.scrollUntilVisible(find.text('#8  M. White'), 40,
+        scrollable: find
+            .descendant(of: find.byType(AlertDialog), matching: find.byType(Scrollable))
+            .last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('#8  M. White'));
+    await tester.pumpAndSettle();
+    expect(e.mvpOf(Team.away), 8);
+    expect(find.text('Home Team captain: sign to confirm'), findsNothing);
+    expect(find.text('Sign with your finger in the white box.'), findsOneWidget);
+  });
 }

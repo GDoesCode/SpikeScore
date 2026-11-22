@@ -479,6 +479,15 @@ class _Painter {
     }
 
     field(info.competition, 'competition');
+
+    // MOST VALUABLE PLAYERS: one row for Team A, one for Team B.
+    for (final (team, key) in [(data.teamA, 'mvpA'), (data.teamB, 'mvpB')]) {
+      final n = data.mvp[team];
+      if (n == null) continue;
+      final players = data.teams[team]!.roster.where((p) => p.number == n);
+      final name = players.isEmpty ? '' : '  ${players.first.name}';
+      field('#$n$name', key, size: 9.0);
+    }
     field(info.matchType, 'matchType');
     field(info.matchNumber, 'matchNumber');
     field(info.venue, 'venue');

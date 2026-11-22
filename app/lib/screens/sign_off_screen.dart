@@ -171,7 +171,30 @@ class _SlotTile extends StatelessWidget {
   final _Slot slot;
   final MatchEngine engine;
 
+  /// The team whose MVP this captain picks before signing (the opponents,
+  /// as the sheet says), or null if this slot isn't an approval captain.
+  Team? get _mvpTeam {
+    for (final t in Team.values) {
+      if (slot.id == SignatureSlots.approvalCaptain(t)) return t.other;
+    }
+    return null;
+  }
+
   Future<void> _sign(BuildContext context) async {
+    final mvpTeam = _mvpTeam;
+    if (mvpTeam != null) {
+      final pick = await showDialog<int>(
+        context: context,
+        builder: (_) => _MvpPicker(
+          engine: engine,
+          team: mvpTeam,
+          captainOf: mvpTeam.other,
+        ),
+      );
+      if (pick == null || !context.mounted) return;
+      await engine.setMvp(mvpTeam, pick);
+      if (!context.mounted) return;
+    }
     final result = await showDialog<List<List<List<double>>>>(
       context: context,
       builder: (_) => SignaturePadDialog(title: slot.label),
@@ -179,6 +202,15 @@ class _SlotTile extends StatelessWidget {
     if (result != null && result.isNotEmpty) {
       await engine.setSignature(slot.id, result);
     }
+  }
+
+  String _mvpLine() {
+    final team = _mvpTeam!;
+    final n = engine.mvpOf(team);
+    final name = engine.sheetOf(team).teamName;
+    if (n == null) return 'MVP for $name: not picked yet';
+    final p = engine.sheetOf(team).roster.where((p) => p.number == n);
+    return 'MVP for $name: #$n${p.isEmpty ? '' : ' ${p.first.name}'}';
   }
 
   @override
@@ -191,6 +223,7 @@ class _SlotTile extends StatelessWidget {
       color: const Color(0xFF1E1E1E),
       margin: const EdgeInsets.symmetric(vertical: 4),
       child: ListTile(
+        isThreeLine: _mvpTeam != null,
         onTap: locked ? null : () => _sign(context),
         leading: Icon(
           signed ? (locked ? Icons.lock : Icons.check_circle) : Icons.draw,
@@ -198,11 +231,16 @@ class _SlotTile extends StatelessWidget {
         ),
         title: Text(slot.label, style: const TextStyle(color: Colors.white)),
         subtitle: Text(
-          locked
-              ? 'Signed. Locked now that play has started.'
-              : signed
-                  ? 'Signed. Tap to sign again.'
-                  : 'Tap to sign',
+          [
+            if (_mvpTeam != null) _mvpLine(),
+            locked
+                ? 'Signed. Locked now that play has started.'
+                : signed
+                    ? 'Signed. Tap to pick again and sign again.'
+                    : _mvpTeam != null
+                        ? 'Tap to pick the MVP, then sign'
+                        : 'Tap to sign',
+          ].join('\n'),
           style: const TextStyle(color: Colors.white54, fontSize: 12),
         ),
         trailing: Row(
@@ -227,6 +265,74 @@ class _SlotTile extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// The captain of [captainOf] picks the most valuable player of [team] from
+/// the players who were on court in this match.
+class _MvpPicker extends StatelessWidget {
+  const _MvpPicker({
+    required this.engine,
+    required this.team,
+    required this.captainOf,
+  });
+
+  final MatchEngine engine;
+  final Team team;
+  final Team captainOf;
+
+  @override
+  Widget build(BuildContext context) {
+    final players = engine.playersWhoPlayed(team);
+    final current = engine.mvpOf(team);
+    return AlertDialog(
+      backgroundColor: const Color(0xFF222222),
+      title: Text('MVP for ${engine.sheetOf(team).teamName}',
+          style: const TextStyle(color: Colors.white)),
+      content: SizedBox(
+        width: 360,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${engine.sheetOf(captainOf).teamName} captain: pick one player who '
+              'played in this match, then sign.',
+              style: const TextStyle(color: Colors.white70, fontSize: 13),
+            ),
+            const SizedBox(height: 8),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  for (final p in players)
+                    ListTile(
+                      dense: true,
+                      leading: Icon(
+                        p.number == current ? Icons.star : Icons.star_border,
+                        color: p.number == current ? Colors.amberAccent : Colors.white38,
+                      ),
+                      title: Text('#${p.number}  ${p.name}',
+                          style: const TextStyle(color: Colors.white)),
+                      subtitle: Text(p.position,
+                          style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                      onTap: () => Navigator.pop(context, p.number),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const TeamSheetsScreen())),
+          child: const Text('Team sheets'),
+        ),
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+      ],
     );
   }
 }
