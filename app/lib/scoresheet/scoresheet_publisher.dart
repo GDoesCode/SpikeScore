@@ -2,14 +2,15 @@
 import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
-import 'package:printing/printing.dart';
 
 import '../match_engine.dart';
 import 'scoresheet_data.dart';
 import 'scoresheet_pdf.dart';
+import 'scoresheet_preview_screen.dart';
 
-/// Turns the current match into a filled-in BVA scoresheet PDF and hands it to
-/// the phone's share sheet (save to Files, email, print, AirDrop, ...).
+/// Turns the current match into a filled-in BVA scoresheet PDF and opens a
+/// preview of it, whose Share button hands it to the phone's share sheet
+/// (save to Files, email, print, ...).
 class ScoresheetPublisher {
   static const _backgroundAsset = 'assets/scoresheet/bva_3set_blank.jpg';
   static const _layoutAsset = 'assets/scoresheet/bva_3set_layout.json';
@@ -30,9 +31,10 @@ class ScoresheetPublisher {
     );
   }
 
-  /// Builds the sheet and opens the share sheet. Safe to call at any time.
+  /// Builds the sheet and opens the preview screen. Safe to call at any time.
   static Future<void> publish(BuildContext context, MatchEngine engine) async {
     final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
 
     if (!ScoresheetData.isSupported(engine)) {
       messenger.showSnackBar(const SnackBar(
@@ -50,7 +52,14 @@ class ScoresheetPublisher {
 
     try {
       final bytes = await buildPdf(engine);
-      await Printing.sharePdf(bytes: bytes, filename: _fileName(engine));
+      final fileName = _fileName(engine);
+      messenger.hideCurrentSnackBar();
+      // Don't await: the preview stays open as long as the scorer wants, and
+      // the busy flag only guards against double taps while building.
+      navigator.push(MaterialPageRoute<void>(
+        builder: (_) =>
+            ScoresheetPreviewScreen(bytes: bytes, fileName: fileName),
+      ));
     } catch (e, st) {
       debugPrint('SpikeScore: could not publish scoresheet: $e\n$st');
       messenger.showSnackBar(SnackBar(
