@@ -101,6 +101,18 @@ class SheetSet {
   /// until the whole order has been through once, and their first real service
   /// is written in box 2.
   bool receivesFirst(Team team) => firstServe != null && firstServe != team;
+
+  /// The team on the left when this set started, given the match's team A
+  /// (who started set 1 on the left). Used to place the deciding set.
+  Team leftTeam(Team teamA) => leftAtStart ?? teamA;
+
+  /// True when [team]'s rounds are split across two blocks of the sheet: in
+  /// the deciding set, the team that started on the left is written in the
+  /// first block until the change of ends and in the third block after it.
+  /// The team on the right keeps one block for the whole set, so its rounds
+  /// carry on in the same boxes after the change.
+  bool splitsAtChange(Team team, Team teamA) =>
+      change != null && team == leftTeam(teamA);
 }
 
 /// Whole minutes between two clock times, counted the way the times are
@@ -324,18 +336,22 @@ class ScoresheetData {
     }
 
     // Work out which box each round is written in. Each block of the sheet
-    // counts its own rounds: the first half of a set and, in the deciding set,
-    // the block after the change of ends.
+    // counts its own rounds. In the deciding set the team that started on the
+    // left gets a fresh block after the change of ends, so its count starts
+    // again; the team on the right stays in one block, so its count carries on
+    // (otherwise a second round at the same position lands on top of the first).
+    final teamA = engine.startingLeft[1] ?? Team.home;
     for (final s in sets.values) {
       for (final team in Team.values) {
         final rounds = s.rounds[team]!;
-        for (final afterChange in const [false, true]) {
+        final split = s.splitsAtChange(team, teamA);
+        for (final afterChange in split ? const [false, true] : const [null]) {
           final used = <int, int>{};
-          if (!afterChange && s.receivesFirst(team)) {
+          if (afterChange != true && s.receivesFirst(team)) {
             used[1] = 1; // box 1 of service order I is crossed out
           }
           for (final r in rounds) {
-            if (r.afterChange != afterChange) continue;
+            if (afterChange != null && r.afterChange != afterChange) continue;
             final index = used[r.position] ?? 0;
             used[r.position] = index + 1;
             r.cell = index;
@@ -359,7 +375,7 @@ class ScoresheetData {
 
     final ordered = sets.keys.toList()..sort();
     return ScoresheetData(
-      teamA: engine.startingLeft[1] ?? Team.home,
+      teamA: teamA,
       teams: teams,
       sets: [for (final n in ordered) sets[n]!],
       setsWon: setsWon,

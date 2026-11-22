@@ -417,9 +417,9 @@ class _Painter {
         case 3:
           {
             // New coin toss: whichever team was chosen to start on the left.
-            final left = sd.leftAtStart ?? data.teamA;
+            final left = sd.leftTeam(data.teamA);
             final right = left.other;
-            if (sd.change != null) {
+            if (sd.splitsAtChange(left, data.teamA)) {
               _drawBlock('S3L', left, sd, data, _Segment.before);
               _drawBlock('S3C', left, sd, data, _Segment.after);
             } else {
