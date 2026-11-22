@@ -9,7 +9,7 @@ void main() {
       const rules = MatchRules();
       expect(rules.pointsPerSet, 25);
       expect(rules.decidingSetPoints, 15);
-      expect(rules.decidingSetWinByTwo, isTrue);
+      expect(rules.winByTwo, isTrue);
       expect(rules.timeOutsPerSet, 2);
       expect(rules.subsPerSet, 8);
       expect(rules, MatchRules.defaults);
@@ -56,17 +56,17 @@ void main() {
       final changed = MatchRules.defaults.copyWith(pointsPerSet: 21);
       expect(changed.pointsPerSet, 21);
       expect(changed.decidingSetPoints, 15);
-      expect(changed.decidingSetWinByTwo, isTrue);
+      expect(changed.winByTwo, isTrue);
       expect(changed.timeOutsPerSet, 2);
       expect(changed.subsPerSet, 8);
     });
 
-    test('win by 2 in the tie-break can be switched off and on', () {
-      final off = MatchRules.defaults.copyWith(decidingSetWinByTwo: false);
-      expect(off.decidingSetWinByTwo, isFalse);
+    test('win by 2 can be switched off and on', () {
+      final off = MatchRules.defaults.copyWith(winByTwo: false);
+      expect(off.winByTwo, isFalse);
       expect(off.pointsPerSet, 25); // nothing else changed
-      expect(off.copyWith(decidingSetWinByTwo: true).decidingSetWinByTwo, isTrue);
-      expect(off.clamped().decidingSetWinByTwo, isFalse);
+      expect(off.copyWith(winByTwo: true).winByTwo, isTrue);
+      expect(off.clamped().winByTwo, isFalse);
     });
 
     test('copyWith never goes outside the allowed range', () {
@@ -80,7 +80,7 @@ void main() {
       const rules = MatchRules(
         pointsPerSet: 21,
         decidingSetPoints: 11,
-        decidingSetWinByTwo: false,
+        winByTwo: false,
         timeOutsPerSet: 1,
         subsPerSet: 4,
       );
@@ -93,10 +93,16 @@ void main() {
         MatchRules.fromJson({
           'pointsPerSet': 'lots',
           'subsPerSet': null,
-          'decidingSetWinByTwo': 'maybe',
+          'winByTwo': 'maybe',
         }),
         MatchRules.defaults,
       );
+    });
+
+    test('reads win by 2 from the old JSON key', () {
+      expect(MatchRules.fromJson({'decidingSetWinByTwo': false}).winByTwo, isFalse);
+      expect(MatchRules.fromJson({'decidingSetWinByTwo': true}).winByTwo, isTrue);
+      expect(MatchRules.defaults.toJson().containsKey('decidingSetWinByTwo'), isFalse);
     });
 
     test('out-of-range JSON is clamped', () {
@@ -111,7 +117,7 @@ void main() {
       expect(a, b);
       expect(a.hashCode, b.hashCode);
       expect(a, isNot(MatchRules.defaults));
-      expect(const MatchRules(decidingSetWinByTwo: false), isNot(MatchRules.defaults));
+      expect(const MatchRules(winByTwo: false), isNot(MatchRules.defaults));
     });
   });
 }

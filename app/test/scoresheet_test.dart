@@ -149,12 +149,27 @@ void main() {
       expect(set1.winner, Team.home);
     });
 
+    test('a normal set without win by 2 is complete at the target', () async {
+      final e = await newEngine();
+      await e.setRules(const MatchRules(pointsPerSet: 15, winByTwo: false));
+      await e.chooseFirstServe(Team.home);
+      for (var i = 0; i < 14; i++) {
+        await e.scorePoint(Team.away);
+        await e.scorePoint(Team.home);
+      }
+      await e.scorePoint(Team.home); // 15:14
+
+      final set1 = ScoresheetData.fromEngine(e).sets.single;
+      expect(set1.complete, isTrue);
+      expect(set1.winner, Team.home);
+    });
+
     test('a tie-break without win by 2 is complete at the target', () async {
       final e = await newEngine();
       await e.setRules(const MatchRules(
         pointsPerSet: 15,
         decidingSetPoints: 11,
-        decidingSetWinByTwo: false,
+        winByTwo: false,
       ));
       await playSet(e, winner: Team.home);
       await e.startNewSet();

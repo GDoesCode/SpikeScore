@@ -42,7 +42,7 @@ Undo removes the last event and replays, so corrections never corrupt the sheet,
 
 The app opens on a main menu with cards for: start or continue the match, match settings, team sheets, notes, sign-off, the scoresheet PDF, and New match (with a confirmation).
 
-**Match settings** hold the format and rules: 3 or 5 sets, points per set (15 to 30), points in the tie-break (10 to 15; the teams change ends at half, rounded up), whether the tie-break must be won by 2 points, time-outs per team per set (0 to 2) and substitutions per team per set (0 to 12). They are locked once the match starts, and are saved separately from the match so they survive a reset or a change of teams. The defaults are the standard BVA rules (3 sets, 25 / 15, tie-break won by 2, two time-outs, eight subs).
+**Match settings** hold the format and rules: 3 or 5 sets, points per set (15 to 30), points in the tie-break (10 to 15; the teams change ends at half, rounded up), whether sets (the tie-break included) must be won by 2 points or go to the first team to reach the target, time-outs per team per set (0 to 2) and substitutions per team per set (0 to 12). They are locked once the match starts, and are saved separately from the match so they survive a reset or a change of teams. The defaults are the standard BVA rules (3 sets, 25 / 15, every set won by 2, two time-outs, eight subs).
 
 **Team sheets** lists the two teams in this match and any others in the data file, with players, starting line-up and officials. It is read only: the teams come from `assets/demo/demo_data.json`.
 
@@ -94,7 +94,7 @@ The names in the file are made up. Do not put real rosters in it (see Data prote
 
 These reflect current BVA practice. The numbers can be changed in Match settings; these are the defaults.
 
-- Rally scoring: sets to 25, win by 2; the deciding set (tie-break) is played to 15, win by 2 unless the option is switched off
+- Rally scoring: sets to 25 and the deciding set (tie-break) to 15, all won by 2 points unless the "Win sets by 2 points" option is switched off, in which case the first team to the target wins the set
 - Best of 3 sets (configurable to best of 5)
 - Teams change ends at 8 points in the deciding set
 - Two time-outs per team per set

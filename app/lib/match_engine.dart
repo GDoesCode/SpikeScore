@@ -737,11 +737,10 @@ class MatchEngine extends ChangeNotifier {
     final home = s.teams[Team.home]!.score;
     final away = s.teams[Team.away]!.score;
     final target = _targetFor(s.currentSet);
-    // Normal sets are always won by 2. The deciding set (the tie-break) is
-    // too, unless the rules say the first team to the target wins it.
-    final needsTwoClear = s.currentSet != _maxSets || _rules.decidingSetWinByTwo;
+    // Every set is won by 2, unless the rules say the first team to the
+    // target wins it.
     return (home >= target || away >= target) &&
-        (home - away).abs() >= (needsTwoClear ? 2 : 1);
+        (home - away).abs() >= (_rules.winByTwo ? 2 : 1);
   }
 
   /// Starts a new service round for [team], who is about to serve.
