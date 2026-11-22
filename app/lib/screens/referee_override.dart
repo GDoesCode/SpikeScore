@@ -219,7 +219,9 @@ class _ScoreEditorState extends State<_ScoreEditor> {
         );
 
     final changed = _delta.values.any((d) => d != 0);
+    // Scrollable so it fits a phone held sideways (the match screen).
     return AlertDialog(
+      scrollable: true,
       backgroundColor: const Color(0xFF222222),
       title: Text('Set ${engine.currentSet}: change the score',
           style: const TextStyle(color: Colors.white)),

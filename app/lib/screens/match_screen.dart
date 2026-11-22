@@ -240,6 +240,36 @@ class _MatchScreenState extends State<MatchScreen> {
             ),
           ),
 
+          // Set (or match) over and its pop-up closed: an obvious way back.
+          if (engine.isSetComplete && !engine.isSignedOff)
+            Container(
+              width: double.infinity,
+              color: Colors.green[900],
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      engine.isMatchComplete
+                          ? 'Match finished.'
+                          : 'Set ${engine.currentSet} finished '
+                              '${engine.scoreOf(engine.leftTeam)}:${engine.scoreOf(engine.rightTeam)}.',
+                      style: const TextStyle(color: Colors.white, fontSize: 15),
+                    ),
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: engine.isMatchComplete
+                        ? _openPostMatchSigning
+                        : () => _showSetCompletionModal(context),
+                    icon: Icon(engine.isMatchComplete ? Icons.draw : Icons.flag),
+                    label: Text(engine.isMatchComplete
+                        ? 'Sign the scoresheet'
+                        : 'Next set'),
+                  ),
+                ],
+              ),
+            ),
+
           // Bottom action bar
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -299,9 +329,14 @@ class _MatchScreenState extends State<MatchScreen> {
     final server = engine.serverIfWins(team);
 
     return GestureDetector(
-      onTap: engine.isSetComplete || engine.awaitingPreMatchSignatures || engine.isSignedOff
+      onTap: engine.awaitingPreMatchSignatures || engine.isSignedOff
           ? null
-          : () {
+          : engine.isSetComplete
+              // Set over: tapping the scoreboard brings the pop-up back.
+              ? () => engine.isMatchComplete
+                  ? _openPostMatchSigning()
+                  : _showSetCompletionModal(context)
+              : () {
               HapticFeedback.mediumImpact();
               // The score updates immediately; saving happens in the background.
               engine.scorePoint(team);
