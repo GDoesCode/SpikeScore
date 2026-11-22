@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../match_engine.dart';
+import '../screen_orientation.dart';
 import '../scoresheet/scoresheet_publisher.dart';
 import '../scoresheet/signature_slots.dart';
 import 'referee_override.dart';
@@ -184,14 +185,15 @@ class _SlotTile extends StatelessWidget {
   Future<void> _sign(BuildContext context) async {
     final mvpTeam = _mvpTeam;
     if (mvpTeam != null) {
-      final pick = await showDialog<int>(
-        context: context,
+      // A full page, turned upright so the list is easy to read; the phone
+      // turns back when the captain has picked.
+      final pick = await Navigator.of(context).push<int>(MaterialPageRoute(
         builder: (_) => _MvpPicker(
           engine: engine,
           team: mvpTeam,
           captainOf: mvpTeam.other,
         ),
-      );
+      ));
       if (pick == null || !context.mounted) return;
       await engine.setMvp(mvpTeam, pick);
       if (!context.mounted) return;
@@ -271,8 +273,10 @@ class _SlotTile extends StatelessWidget {
 }
 
 /// The captain of [captainOf] picks the most valuable player of [team] from
-/// the players who were on court in this match.
-class _MvpPicker extends StatelessWidget {
+/// the players who were on court in this match. A full page shown upright
+/// (portrait), so the names are big and easy to read; the previous
+/// orientation comes back when it closes.
+class _MvpPicker extends StatefulWidget {
   const _MvpPicker({
     required this.engine,
     required this.team,
@@ -284,56 +288,84 @@ class _MvpPicker extends StatelessWidget {
   final Team captainOf;
 
   @override
+  State<_MvpPicker> createState() => _MvpPickerState();
+}
+
+class _MvpPickerState extends State<_MvpPicker> {
+  late final List<DeviceOrientation> _previous;
+
+  @override
+  void initState() {
+    super.initState();
+    _previous = ScreenOrientation.current;
+    ScreenOrientation.set(ScreenOrientation.portrait);
+  }
+
+  @override
+  void dispose() {
+    ScreenOrientation.set(_previous);
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final players = engine.playersWhoPlayed(team);
-    final current = engine.mvpOf(team);
-    return AlertDialog(
-      backgroundColor: const Color(0xFF222222),
-      title: Text('MVP for ${engine.sheetOf(team).teamName}',
-          style: const TextStyle(color: Colors.white)),
-      content: SizedBox(
-        width: 360,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '${engine.sheetOf(captainOf).teamName} captain: pick one player who '
-              'played in this match, then sign.',
-              style: const TextStyle(color: Colors.white70, fontSize: 13),
+    final engine = widget.engine;
+    final players = engine.playersWhoPlayed(widget.team);
+    final current = engine.mvpOf(widget.team);
+    return Scaffold(
+      backgroundColor: const Color(0xFF121212),
+      appBar: AppBar(
+        title: Text('MVP for ${engine.sheetOf(widget.team).teamName}',
+            style: const TextStyle(fontWeight: FontWeight.bold)),
+        backgroundColor: const Color(0xFF1E1E1E),
+        elevation: 0,
+        actions: [
+          TextButton.icon(
+            onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const TeamSheetsScreen())),
+            icon: const Icon(Icons.groups),
+            label: const Text('Team sheets'),
+          ),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(12),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 4, 4, 12),
+            child: Text(
+              '${engine.sheetOf(widget.captainOf).teamName} captain: tap the '
+              'player you pick as MVP. You sign straight after.',
+              style: const TextStyle(color: Colors.white70, fontSize: 16),
             ),
-            const SizedBox(height: 8),
-            Flexible(
-              child: ListView(
-                shrinkWrap: true,
-                children: [
-                  for (final p in players)
-                    ListTile(
-                      dense: true,
-                      leading: Icon(
-                        p.number == current ? Icons.star : Icons.star_border,
-                        color: p.number == current ? Colors.amberAccent : Colors.white38,
-                      ),
-                      title: Text('#${p.number}  ${p.name}',
-                          style: const TextStyle(color: Colors.white)),
-                      subtitle: Text(p.position,
-                          style: const TextStyle(color: Colors.white54, fontSize: 12)),
-                      onTap: () => Navigator.pop(context, p.number),
-                    ),
-                ],
+          ),
+          for (final p in players)
+            Card(
+              color: p.number == current ? const Color(0xFF3A3220) : const Color(0xFF1E1E1E),
+              margin: const EdgeInsets.symmetric(vertical: 5),
+              child: ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                leading: CircleAvatar(
+                  radius: 24,
+                  backgroundColor: Colors.white12,
+                  child: Text('${p.number}',
+                      style: const TextStyle(
+                          color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                ),
+                title: Text('#${p.number}  ${p.name}',
+                    style: const TextStyle(color: Colors.white, fontSize: 20)),
+                subtitle: Text(p.position,
+                    style: const TextStyle(color: Colors.white54, fontSize: 14)),
+                trailing: Icon(
+                  p.number == current ? Icons.star : Icons.star_border,
+                  color: p.number == current ? Colors.amberAccent : Colors.white38,
+                  size: 28,
+                ),
+                onTap: () => Navigator.pop(context, p.number),
               ),
             ),
-          ],
-        ),
+        ],
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const TeamSheetsScreen())),
-          child: const Text('Team sheets'),
-        ),
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-      ],
     );
   }
 }
