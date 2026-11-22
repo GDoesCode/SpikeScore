@@ -50,9 +50,10 @@ class SheetRound {
   final List<int> servers;
 
   /// Which box of that position's column the score goes in, counting from 0
-  /// (0 is "1st"). Normally the position's 1st, 2nd, 3rd round in order, but
-  /// the team receiving first skips box 0 of position I (see
-  /// [SheetSet.receivesFirst]). Filled in when the data is built.
+  /// (0 is "1st"). The position's 1st, 2nd, 3rd round of the set in order,
+  /// but the team receiving first skips box 0 of position I (see
+  /// [SheetSet.receivesFirst]). The count carries on across the change of
+  /// ends in the deciding set. Filled in when the data is built.
   int cell = 0;
 
   SheetRound(this.position, this.endOwn, this.afterChange, this.servers);
@@ -113,6 +114,19 @@ class SheetSet {
   /// carry on in the same boxes after the change.
   bool splitsAtChange(Team team, Team teamA) =>
       change != null && team == leftTeam(teamA);
+
+  /// How many boxes of service order [position] (1 to 6) [team] had used
+  /// before the change of ends: one per round that ended in the first half,
+  /// plus box 1 of I when the team received first. The block after the change
+  /// crosses these out, so the next round at that position goes in the box
+  /// after them, just as it would on one continuous block.
+  int boxesUsedBefore(Team team, int position) {
+    var n = (position == 1 && receivesFirst(team)) ? 1 : 0;
+    for (final r in rounds[team]!) {
+      if (!r.afterChange && r.position == position) n++;
+    }
+    return n;
+  }
 }
 
 /// Whole minutes between two clock times, counted the way the times are
@@ -335,27 +349,22 @@ class ScoresheetData {
       s.rounds[r.team]!.add(SheetRound(r.position, r.endOwn, after, r.servers));
     }
 
-    // Work out which box each round is written in. Each block of the sheet
-    // counts its own rounds. In the deciding set the team that started on the
-    // left gets a fresh block after the change of ends, so its count starts
-    // again; the team on the right stays in one block, so its count carries on
-    // (otherwise a second round at the same position lands on top of the first).
+    // Work out which box each round is written in. A team's count runs on
+    // through the whole set. In the deciding set the team that started on the
+    // left moves to a new block after the change of ends; that block crosses
+    // out the boxes already used in the first half (see
+    // [SheetSet.boxesUsedBefore]) so its count carries on there too.
     final teamA = engine.startingLeft[1] ?? Team.home;
     for (final s in sets.values) {
       for (final team in Team.values) {
-        final rounds = s.rounds[team]!;
-        final split = s.splitsAtChange(team, teamA);
-        for (final afterChange in split ? const [false, true] : const [null]) {
-          final used = <int, int>{};
-          if (afterChange != true && s.receivesFirst(team)) {
-            used[1] = 1; // box 1 of service order I is crossed out
-          }
-          for (final r in rounds) {
-            if (afterChange != null && r.afterChange != afterChange) continue;
-            final index = used[r.position] ?? 0;
-            used[r.position] = index + 1;
-            r.cell = index;
-          }
+        final used = <int, int>{};
+        if (s.receivesFirst(team)) {
+          used[1] = 1; // box 1 of service order I is crossed out
+        }
+        for (final r in s.rounds[team]!) {
+          final index = used[r.position] ?? 0;
+          used[r.position] = index + 1;
+          r.cell = index;
         }
       }
     }
