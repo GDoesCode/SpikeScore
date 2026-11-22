@@ -131,7 +131,7 @@ class SignOffScreen extends StatelessWidget {
                   onPressed: engine.preMatchSigned || engine.preMatchWaived
                       ? () => Navigator.of(context).maybePop()
                       : null,
-                  child: const Text('Start the match'),
+                  child: Text(engine.playHasStarted ? 'Continue match' : 'Start the match'),
                 ),
             ],
           ),
