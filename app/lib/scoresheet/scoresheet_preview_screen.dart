@@ -6,7 +6,7 @@ import 'package:printing/printing.dart';
 typedef PdfPageRenderer = Future<List<Uint8List>> Function(Uint8List pdf);
 
 /// Shows the filled-in scoresheet so the scorer can check it before sending
-/// it anywhere. Pinch to zoom; the Share button opens the phone's share sheet
+/// it anywhere. Pinch to zoom; the share icon (top right) opens the phone's share sheet
 /// (save to Files, email, print, ...). Everything happens on the device.
 class ScoresheetPreviewScreen extends StatefulWidget {
   const ScoresheetPreviewScreen({
@@ -55,7 +55,8 @@ class _ScoresheetPreviewScreenState extends State<ScoresheetPreviewScreen> {
     } catch (e, st) {
       debugPrint('SpikeScore: could not share scoresheet: $e\n$st');
       messenger.showSnackBar(
-          SnackBar(content: Text('Could not share the scoresheet: $e')));
+        SnackBar(content: Text('Could not share the scoresheet: $e')),
+      );
     } finally {
       if (mounted) setState(() => _sharing = false);
     }
@@ -69,6 +70,7 @@ class _ScoresheetPreviewScreenState extends State<ScoresheetPreviewScreen> {
         title: const Text('Scoresheet preview'),
         actions: [
           IconButton(
+            key: const Key('scoresheet-share'),
             tooltip: 'Share',
             icon: const Icon(Icons.share),
             onPressed: _sharing ? null : _share,
@@ -119,17 +121,6 @@ class _ScoresheetPreviewScreenState extends State<ScoresheetPreviewScreen> {
             ),
           );
         },
-      ),
-      bottomNavigationBar: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-          child: FilledButton.icon(
-            key: const Key('scoresheet-share'),
-            onPressed: _sharing ? null : _share,
-            icon: const Icon(Icons.share),
-            label: const Text('Share scoresheet'),
-          ),
-        ),
       ),
     );
   }

@@ -34,6 +34,12 @@ void main() {
     expect(find.text('Scoresheet preview'), findsOneWidget);
     expect(find.byType(Image), findsOneWidget);
     expect(shared, isEmpty, reason: 'opening the preview must not share');
+    expect(find.text('Share scoresheet'), findsNothing,
+        reason: 'only the small share icon in the app bar');
+    expect(
+        find.descendant(
+            of: find.byType(AppBar), matching: find.byTooltip('Share')),
+        findsOneWidget);
 
     await tester.tap(find.byKey(const Key('scoresheet-share')));
     await tester.pumpAndSettle();
