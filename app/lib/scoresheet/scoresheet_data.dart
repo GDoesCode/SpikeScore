@@ -267,6 +267,23 @@ class ScoresheetData {
             break;
           }
 
+        case EventType.scoreAdjust:
+          {
+            // A referee's correction: only the numbers change.
+            final t = team!;
+            final v = score[t]! + (e.delta ?? 0);
+            score[t] = v < 0 ? 0 : v;
+            final home = score[Team.home]!;
+            final away = score[Team.away]!;
+            cur.score[Team.home] = home;
+            cur.score[Team.away] = away;
+            final done = _isComplete(setNo, home, away, rules);
+            cur.complete = done;
+            cur.winner = done ? (home > away ? Team.home : Team.away) : null;
+            cur.end = done ? (cur.end ?? e.at) : null;
+            break;
+          }
+
         case EventType.newSet:
           {
             setNo++;

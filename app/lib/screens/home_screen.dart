@@ -112,8 +112,14 @@ class HomeScreen extends StatelessWidget {
       ),
       _MenuCard(
         icon: Icons.draw,
-        title: 'Sign-off',
-        subtitle: '${engine.signatures.length} of 14 signed',
+        title: engine.isMatchComplete ? 'Sign the scoresheet' : 'Team sheet signatures',
+        subtitle: () {
+          final ids = engine.isMatchComplete
+              ? MatchEngine.postMatchSlots
+              : engine.preMatchSlots;
+          final n = ids.where(engine.signatures.containsKey).length;
+          return '$n of ${ids.length} signed';
+        }(),
         onTap: () => _open(context, const SignOffScreen()),
       ),
       _MenuCard(
