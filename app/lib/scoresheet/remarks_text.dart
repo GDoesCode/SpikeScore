@@ -91,3 +91,76 @@ RemarksFit fitRemarks(
   lines[lastRow] = '$last...';
   return RemarksFit(minSize, lines, true);
 }
+
+/// The REMARKS box with referee overrides: the notes first, then each override
+/// starting on a new line. [signatureRows] gives, for each override, the row
+/// whose right-hand end holds the referee's signature (absent if it didn't
+/// fit).
+class RemarksWithOverrides {
+  final double size;
+  final List<String> lines;
+  final Map<int, int> signatureRows;
+  final bool truncated;
+  const RemarksWithOverrides(
+      this.size, this.lines, this.signatureRows, this.truncated);
+}
+
+/// Lays out [notes] and then each of [overrides] on the rows of the REMARKS
+/// box. Override lines are kept [signatureWidth] short of the row's end, to
+/// leave room for the signature.
+RemarksWithOverrides fitRemarksWithOverrides(
+  String notes,
+  List<String> overrides,
+  List<double> rowWidths,
+  double signatureWidth,
+  TextMeasure measure, {
+  double maxSize = 6.5,
+  double minSize = 4.0,
+}) {
+  if (overrides.isEmpty) {
+    final fit = fitRemarks(notes, rowWidths, measure,
+        maxSize: maxSize, minSize: minSize);
+    return RemarksWithOverrides(fit.size, fit.lines, const {}, fit.truncated);
+  }
+
+  RemarksWithOverrides layout(double size) {
+    final lines = <String>[];
+    final sigRows = <int, int>{};
+    if (notes.trim().isNotEmpty) {
+      lines.addAll(wrapLines(notes, rowWidths, size, measure));
+    }
+    for (var i = 0; i < overrides.length; i++) {
+      final start = lines.length;
+      final widths = [
+        for (var r = start; r < start + rowWidths.length; r++)
+          rowWidths[r < rowWidths.length ? r : rowWidths.length - 1] -
+              signatureWidth
+      ];
+      final wrapped = wrapLines(overrides[i], widths, size, measure);
+      if (wrapped.isEmpty) wrapped.add('');
+      lines.addAll(wrapped);
+      sigRows[i] = lines.length - 1;
+    }
+    return RemarksWithOverrides(size, lines, sigRows, false);
+  }
+
+  for (var size = maxSize; size >= minSize; size -= 0.25) {
+    final l = layout(size);
+    if (l.lines.length <= rowWidths.length) return l;
+  }
+
+  // Too long even at the smallest size: keep the rows that fit.
+  final l = layout(minSize);
+  final lines = l.lines.take(rowWidths.length).toList();
+  final last = lines.length - 1;
+  lines[last] = '${lines[last]}...';
+  return RemarksWithOverrides(
+    minSize,
+    lines,
+    {
+      for (final e in l.signatureRows.entries)
+        if (e.value < rowWidths.length) e.key: e.value
+    },
+    true,
+  );
+}
