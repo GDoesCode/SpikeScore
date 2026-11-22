@@ -321,6 +321,19 @@ class _Painter {
       _drawCross(b.rounds[0].first, inset: 1.6, width: 0.7);
     }
 
+    // The block after the change of ends carries the count on: boxes each
+    // server used in the first half are crossed out, so their next service
+    // goes in their 2nd, 3rd, ... box.
+    if (afterOnly) {
+      for (var p = 1; p <= 6; p++) {
+        final cells = b.rounds[p - 1];
+        final n = sd.boxesUsedBefore(team, p);
+        for (var k = 0; k < n && k < cells.length; k++) {
+          _drawCross(cells[k], inset: 1.6, width: 0.7);
+        }
+      }
+    }
+
     for (final r in allRounds) {
       if (!keep(r.afterChange)) continue;
       final cells = b.rounds[r.position - 1];

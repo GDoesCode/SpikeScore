@@ -262,9 +262,12 @@ void main() {
       // Home's second round was still going at the change, so it belongs to
       // the second half of the set.
       expect([home[1].position, home[1].endOwn, home[1].afterChange], [2, 15, true]);
-      // Each block of the sheet counts its own boxes: the second half starts again at box 1.
+      // Server II hadn't served before the change, so their first round is
+      // their box 1 in the new block.
       expect(home[0].cell, 0);
       expect(home[1].cell, 0);
+      expect(set3.boxesUsedBefore(Team.home, 1), 1);
+      expect(set3.boxesUsedBefore(Team.home, 2), 0);
 
       final away = set3.rounds[Team.away]!;
       expect(away.length, 1);
@@ -311,18 +314,28 @@ void main() {
       final boxes = away.map((r) => '${r.position}:${r.cell}').toList();
       expect(boxes.toSet().length, boxes.length);
 
-      // Home is split across two blocks, so each block has its own boxes:
-      // within each half no two rounds share a box, and the second half
-      // starts again at box 1.
+      // Home moves to the third block at the change, and the first server
+      // there is III, not I. Its count still carries on from the first half:
+      // the boxes I and II already used are crossed out in the new block, so
+      // when service comes round to them again it goes in their 3rd box
+      // (I's 1st box was crossed out because home received first).
       final home = set3.rounds[Team.home]!;
-      for (final half in const [false, true]) {
-        final b = [
-          for (final r in home.where((r) => r.afterChange == half))
-            '${r.position}:${r.cell}'
-        ];
-        expect(b.toSet().length, b.length);
+      expect(home.firstWhere((r) => r.afterChange).position, 3);
+      expect(set3.boxesUsedBefore(Team.home, 1), 2);
+      expect(set3.boxesUsedBefore(Team.home, 2), 2);
+      expect(set3.boxesUsedBefore(Team.home, 3), 1);
+      final afterI = home.firstWhere((r) => r.afterChange && r.position == 1);
+      final afterII = home.firstWhere((r) => r.afterChange && r.position == 2);
+      expect([afterI.endOwn, afterI.cell], [12, 2]);
+      expect([afterII.endOwn, afterII.cell], [13, 2]);
+
+      // No round is written in a box crossed out in the new block, and no two
+      // of home's rounds share a box.
+      for (final r in home.where((r) => r.afterChange)) {
+        expect(r.cell, greaterThanOrEqualTo(set3.boxesUsedBefore(Team.home, r.position)));
       }
-      expect(home.firstWhere((r) => r.afterChange).cell, 0);
+      final homeBoxes = home.map((r) => '${r.position}:${r.cell}').toList();
+      expect(homeBoxes.toSet().length, homeBoxes.length);
     });
 
     test('sets 1 and 2: a server serving many times gets a new box each time',
