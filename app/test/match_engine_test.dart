@@ -812,7 +812,7 @@ void main() {
       await e.setRules(const MatchRules(
         pointsPerSet: 15,
         decidingSetPoints: 11,
-        decidingSetWinByTwo: false,
+        winByTwo: false,
       ));
       await playSet(e, winner: Team.home);
       await e.startNewSet();
@@ -853,14 +853,28 @@ void main() {
       expect(e.isSetComplete, isTrue);
     });
 
-    test('switching win by 2 off only affects the tie-break, not normal sets', () async {
+    test('switching win by 2 off lets a normal set be won at the target', () async {
       final e = await newEngine();
-      await e.setRules(const MatchRules(pointsPerSet: 15, decidingSetWinByTwo: false));
+      await e.setRules(const MatchRules(pointsPerSet: 15, winByTwo: false));
+      await e.chooseFirstServe(Team.home);
+
+      await score(e, Team.away, 14);
+      await score(e, Team.home, 14);
+      expect(e.isSetComplete, isFalse); // 14:14
+
+      await e.scorePoint(Team.home); // 15:14
+      expect(e.isSetComplete, isTrue);
+      expect(e.winningTeam, Team.home);
+    });
+
+    test('by default a normal set is won by 2 points', () async {
+      final e = await newEngine();
+      await e.setRules(const MatchRules(pointsPerSet: 15));
       await e.chooseFirstServe(Team.home);
 
       await score(e, Team.away, 14);
       await score(e, Team.home, 15);
-      expect(e.isSetComplete, isFalse); // 15:14 is not enough in a normal set
+      expect(e.isSetComplete, isFalse); // 15:14 is not enough
 
       await e.scorePoint(Team.home); // 16:14
       expect(e.isSetComplete, isTrue);

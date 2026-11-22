@@ -185,7 +185,7 @@ class ScoresheetData {
   static bool _isComplete(int setNumber, int home, int away, MatchRules rules) {
     final deciding = setNumber == _decidingSet;
     final target = deciding ? rules.decidingSetPoints : rules.pointsPerSet;
-    final lead = deciding && !rules.decidingSetWinByTwo ? 1 : 2;
+    final lead = rules.winByTwo ? 2 : 1;
     return (home >= target || away >= target) && (home - away).abs() >= lead;
   }
 

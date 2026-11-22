@@ -12,15 +12,16 @@ class MatchRules {
   static const int maxTimeOutsPerSet = 2; // the sheet has two boxes per team
   static const int maxSubsPerSet = 12; // six positions, two changes each
 
-  /// Points needed to win a normal set (always win by 2).
+  /// Points needed to win a normal set.
   final int pointsPerSet;
 
   /// Points needed to win the deciding set (the tie-break).
   final int decidingSetPoints;
 
-  /// True: the deciding set goes on until a team leads by 2, like a normal set.
-  /// False: the first team to reach [decidingSetPoints] wins it.
-  final bool decidingSetWinByTwo;
+  /// True: every set, the tie-break included, goes on until a team leads by 2.
+  /// False: the first team to reach the set's target ([pointsPerSet], or
+  /// [decidingSetPoints] in the tie-break) wins it.
+  final bool winByTwo;
 
   /// Time-outs each team may take in a set.
   final int timeOutsPerSet;
@@ -31,7 +32,7 @@ class MatchRules {
   const MatchRules({
     this.pointsPerSet = 25,
     this.decidingSetPoints = 15,
-    this.decidingSetWinByTwo = true,
+    this.winByTwo = true,
     this.timeOutsPerSet = 2,
     this.subsPerSet = 8,
   });
@@ -50,7 +51,7 @@ class MatchRules {
         pointsPerSet: _limit(pointsPerSet, minPointsPerSet, maxPointsPerSet),
         decidingSetPoints:
             _limit(decidingSetPoints, minDecidingSetPoints, maxDecidingSetPoints),
-        decidingSetWinByTwo: decidingSetWinByTwo,
+        winByTwo: winByTwo,
         timeOutsPerSet: _limit(timeOutsPerSet, 0, maxTimeOutsPerSet),
         subsPerSet: _limit(subsPerSet, 0, maxSubsPerSet),
       );
@@ -58,14 +59,14 @@ class MatchRules {
   MatchRules copyWith({
     int? pointsPerSet,
     int? decidingSetPoints,
-    bool? decidingSetWinByTwo,
+    bool? winByTwo,
     int? timeOutsPerSet,
     int? subsPerSet,
   }) =>
       MatchRules(
         pointsPerSet: pointsPerSet ?? this.pointsPerSet,
         decidingSetPoints: decidingSetPoints ?? this.decidingSetPoints,
-        decidingSetWinByTwo: decidingSetWinByTwo ?? this.decidingSetWinByTwo,
+        winByTwo: winByTwo ?? this.winByTwo,
         timeOutsPerSet: timeOutsPerSet ?? this.timeOutsPerSet,
         subsPerSet: subsPerSet ?? this.subsPerSet,
       ).clamped();
@@ -73,7 +74,7 @@ class MatchRules {
   Map<String, dynamic> toJson() => {
         'pointsPerSet': pointsPerSet,
         'decidingSetPoints': decidingSetPoints,
-        'decidingSetWinByTwo': decidingSetWinByTwo,
+        'winByTwo': winByTwo,
         'timeOutsPerSet': timeOutsPerSet,
         'subsPerSet': subsPerSet,
       };
@@ -85,12 +86,13 @@ class MatchRules {
       return value is num ? value.toInt() : fallback;
     }
 
-    final winByTwo = json['decidingSetWinByTwo'];
+    // Older saves called this 'decidingSetWinByTwo'; read that if present.
+    final winByTwo = json['winByTwo'] ?? json['decidingSetWinByTwo'];
 
     return MatchRules(
       pointsPerSet: read('pointsPerSet', defaults.pointsPerSet),
       decidingSetPoints: read('decidingSetPoints', defaults.decidingSetPoints),
-      decidingSetWinByTwo: winByTwo is bool ? winByTwo : defaults.decidingSetWinByTwo,
+      winByTwo: winByTwo is bool ? winByTwo : defaults.winByTwo,
       timeOutsPerSet: read('timeOutsPerSet', defaults.timeOutsPerSet),
       subsPerSet: read('subsPerSet', defaults.subsPerSet),
     ).clamped();
@@ -101,7 +103,7 @@ class MatchRules {
       other is MatchRules &&
       other.pointsPerSet == pointsPerSet &&
       other.decidingSetPoints == decidingSetPoints &&
-      other.decidingSetWinByTwo == decidingSetWinByTwo &&
+      other.winByTwo == winByTwo &&
       other.timeOutsPerSet == timeOutsPerSet &&
       other.subsPerSet == subsPerSet;
 
@@ -109,14 +111,14 @@ class MatchRules {
   int get hashCode => Object.hash(
         pointsPerSet,
         decidingSetPoints,
-        decidingSetWinByTwo,
+        winByTwo,
         timeOutsPerSet,
         subsPerSet,
       );
 
   @override
   String toString() =>
-      'MatchRules(points $pointsPerSet, deciding $decidingSetPoints'
-      '${decidingSetWinByTwo ? ' win by 2' : ' first to win'}, '
+      'MatchRules(points $pointsPerSet, deciding $decidingSetPoints, '
+      '${winByTwo ? 'win by 2' : 'first to win'}, '
       'time-outs $timeOutsPerSet, subs $subsPerSet)';
 }

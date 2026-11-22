@@ -95,13 +95,14 @@ class SettingsScreen extends StatelessWidget {
             onChanged: (v) => change(rules.copyWith(decidingSetPoints: v)),
           ),
           _SwitchTile(
-            title: 'Win the tie-break by 2 points',
-            subtitle: rules.decidingSetWinByTwo
-                ? 'On: play on until one team leads by 2.'
-                : 'Off: the first team to reach ${rules.decidingSetPoints} wins.',
-            value: rules.decidingSetWinByTwo,
+            title: 'Win sets by 2 points',
+            subtitle: rules.winByTwo
+                ? 'On: every set, tie-break included, plays on until one team leads by 2.'
+                : 'Off: the first team to reach ${rules.pointsPerSet} '
+                    '(${rules.decidingSetPoints} in the tie-break) wins the set.',
+            value: rules.winByTwo,
             enabled: !locked,
-            onChanged: (v) => change(rules.copyWith(decidingSetWinByTwo: v)),
+            onChanged: (v) => change(rules.copyWith(winByTwo: v)),
           ),
 
           const _SectionTitle('Per team, per set'),
