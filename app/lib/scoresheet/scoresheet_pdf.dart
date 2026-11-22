@@ -489,6 +489,10 @@ class _Painter {
     if (info.year != null) field(_two(info.year! % 100), 'year', align: _Align.center);
     if (info.hour != null && info.minute != null) {
       field('${_two(info.hour!)}:${_two(info.minute!)}', 'time', align: _Align.center);
+    } else if (data.matchStart != null) {
+      // No scheduled time in the match details: use when play started.
+      final t = data.matchStart!;
+      field('${_two(t.hour)}:${_two(t.minute)}', 'time', align: _Align.center);
     }
 
     if (info.juniors && m['juniors'] != null) _drawCross(m['juniors']!);
@@ -637,8 +641,17 @@ class _Painter {
     }
   }
 
-  /// Set durations in the "SET (Duration)" column, their total, and the match
-  /// starting time, ending time and total duration under them.
+  /// "hh:mm" written either side of a printed colon. Nothing if [t] is null.
+  void _clock(DateTime? t, double colonX, double baseline, double size) {
+    if (t == null) return;
+    _text('${t.hour}', colonX - 1.6, baseline, size, align: _Align.right);
+    _text(_two(t.minute), colonX + 1.6, baseline, size);
+  }
+
+  /// Every time that has happened so far: each set's START and END time,
+  /// the set durations in the "SET (Duration)" column and their total, and
+  /// the match starting time, ending time and total duration. Anything still
+  /// to come is left blank, so a sheet published mid-match is right so far.
   void _drawTimes(ScoresheetData data) {
     final r = layout.results;
 
@@ -660,14 +673,20 @@ class _Painter {
           isBold: true);
     }
 
+    // START time and END time at the top of each set.
+    for (final sd in data.sets) {
+      final box = layout.setTimes[sd.number];
+      if (box == null) continue;
+      _clock(sd.start, box.startColonX, box.baselineY, 7.0);
+      _clock(sd.end, box.endColonX, box.baselineY, 7.0);
+    }
+
     final y = r.timeBaselineY;
     if (y == null) return;
     const size = 8.0;
 
     void clock(DateTime? t, double? colonX) {
-      if (t == null || colonX == null) return;
-      _text('${t.hour}', colonX - 1.8, y, size, align: _Align.right);
-      _text(_two(t.minute), colonX + 1.8, y, size);
+      if (colonX != null) _clock(t, colonX, y, size);
     }
 
     clock(data.matchStart, r.startColonX);
