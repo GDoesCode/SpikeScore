@@ -4911,6 +4911,11 @@
    ]
   }
  },
+ "setTimes": {
+  "1": {"startColonX": 164.25, "endColonX": 414.5, "baselineY": 122.2},
+  "2": {"startColonX": 512.15, "endColonX": 762.15, "baselineY": 122.2},
+  "3": {"startColonX": 175.8, "endColonX": 414.85, "baselineY": 240.1}
+ },
  "remarks": {
   "rows": [
    [
