@@ -5,6 +5,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../match_engine.dart';
 import '../models.dart';
+import '../screen_orientation.dart';
 import '../scoresheet/scoresheet_publisher.dart';
 import 'notes_screen.dart';
 import 'referee_override.dart';
@@ -60,10 +61,7 @@ class _MatchScreenState extends State<MatchScreen> {
   void initState() {
     super.initState();
     // Force landscape mode
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ]);
+    ScreenOrientation.set(ScreenOrientation.landscape);
 
     // Keep the screen awake during the match
     WakelockPlus.enable();
@@ -72,12 +70,7 @@ class _MatchScreenState extends State<MatchScreen> {
   @override
   void dispose() {
     // Restore orientation preferences
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.portraitUp,
-      DeviceOrientation.portraitDown,
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ]);
+    ScreenOrientation.set(ScreenOrientation.all);
 
     // Allow the screen to sleep again when leaving the match
     WakelockPlus.disable();
@@ -232,8 +225,7 @@ class _MatchScreenState extends State<MatchScreen> {
                 else if (engine.awaitingPreMatchSignatures)
                   _buildLockOverlay(
                     'Waiting for the team sheet signatures',
-                    'Captains${Team.values.any(engine.hasCoach) ? ' and coaches' : ''} '
-                        'sign to confirm the team sheets before the first rally.',
+                    'Both captains sign to confirm the team sheets before the first rally.',
                     'Open signatures',
                     _openPreMatchSigning,
                   )

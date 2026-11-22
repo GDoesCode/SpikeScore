@@ -141,6 +141,10 @@ class ScoresheetData {
   /// Each team's most valuable player (jersey number), if chosen.
   final Map<Team, int> mvp;
 
+  /// Referee overrides, printed in the REMARKS box after the notes, each with
+  /// the referee's signature.
+  final List<RefereeOverride> overrides;
+
   /// When the first rally of the match was scored. Null before that.
   DateTime? get matchStart => sets.isEmpty ? null : sets.first.start;
 
@@ -174,6 +178,7 @@ class ScoresheetData {
     required this.officials,
     required this.notes,
     this.mvp = const {},
+    this.overrides = const [],
   });
 
   /// The BVA sheet in the app is the 3-set one, so only the 3-set format fits.
@@ -364,6 +369,7 @@ class ScoresheetData {
       info: engine.matchInfo,
       officials: engine.officials,
       notes: engine.notes,
+      overrides: engine.overrides,
       mvp: {
         for (final t in Team.values)
           if (engine.mvpOf(t) != null) t: engine.mvpOf(t)!,

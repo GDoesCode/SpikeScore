@@ -278,6 +278,9 @@ class MatchEngine extends ChangeNotifier {
   /// nominated by team B").
   final Map<Team, int> _mvp = {};
 
+  /// Referee overrides, oldest first (see [overrides]).
+  final List<RefereeOverride> _overrides = [];
+
   late TeamSheet homeTeamSheet;
   late TeamSheet awayTeamSheet;
 
@@ -471,11 +474,17 @@ class MatchEngine extends ChangeNotifier {
     _notes = '';
     _preMatchWaived = false;
     _mvp.clear();
+    _overrides.clear();
     try {
       final data = jsonDecode(raw) as Map<String, dynamic>;
       final savedNotes = data['notes'];
       if (savedNotes is String) _notes = savedNotes;
       _preMatchWaived = data['preMatchWaived'] == true;
+      final overrides = data['overrides'];
+      if (overrides is List) {
+        _overrides.addAll(overrides
+            .map((o) => RefereeOverride.fromJson(o as Map<String, dynamic>)));
+      }
       final mvp = data['mvp'];
       if (mvp is Map<String, dynamic>) {
         mvp.forEach((t, n) => _mvp[Team.values.byName(t)] = n as int);
@@ -509,6 +518,7 @@ class MatchEngine extends ChangeNotifier {
         'notes': _notes,
         'preMatchWaived': _preMatchWaived,
         'mvp': {for (final e in _mvp.entries) e.key.name: e.value},
+        'overrides': [for (final o in _overrides) o.toJson()],
       }),
     );
   }
@@ -1004,6 +1014,7 @@ class MatchEngine extends ChangeNotifier {
     _notes = '';
     _preMatchWaived = false;
     _mvp.clear();
+    _overrides.clear();
     _s = _replay();
     notifyListeners();
     await _save();
@@ -1039,7 +1050,14 @@ class MatchEngine extends ChangeNotifier {
 
   static bool isPostMatchSlot(String slotId) => postMatchSlots.contains(slotId);
 
-  bool get preMatchSigned => preMatchSlots.every(_signatures.containsKey);
+  /// The signatures play waits for: the two captains. Coaches aren't always
+  /// there at the start, so they can sign but play doesn't wait for them.
+  static final List<String> requiredPreMatchSlots = [
+    for (final t in Team.values) SignatureSlots.captain(t),
+  ];
+
+  bool get preMatchSigned =>
+      requiredPreMatchSlots.every(_signatures.containsKey);
 
   /// True once a rally, time-out or substitution has been recorded.
   bool get playHasStarted => _events.any((e) =>
@@ -1051,7 +1069,7 @@ class MatchEngine extends ChangeNotifier {
   bool get preMatchWaived => _preMatchWaived;
 
   /// After the first coin toss (sides and first serve), play waits until the
-  /// captains (and coaches) have signed to confirm the team sheets, or a
+  /// two captains have signed to confirm the team sheets, or a
   /// referee lets the match go ahead without them.
   bool get awaitingPreMatchSignatures =>
       _s.currentSet == 1 &&
@@ -1083,37 +1101,39 @@ class MatchEngine extends ChangeNotifier {
   /// player. A signed-off sheet is unlocked (its approval signatures wiped)
   /// and a line is added to the remarks.
   Future<void> adjustScore(Team team, int delta,
-      {required String referee}) async {
+      {required String referee, SignatureInk? ink}) async {
     if (delta == 0 || needsFirstServe) return;
     if (scoreOf(team) + delta < 0) return;
     final before = '${scoreOf(Team.home)}:${scoreOf(Team.away)}';
     _clearPostMatchSignatures();
     await _record(MatchEvent(EventType.scoreAdjust, team: team, delta: delta));
     final sign = delta > 0 ? '+$delta' : '$delta';
-    _addRemark(referee,
-        'set ${_s.currentSet}, ${sheetOf(team).teamName} $sign point(s). '
-        'Score (home:away) $before -> ${scoreOf(Team.home)}:${scoreOf(Team.away)}.');
+    _addRemark(referee, ink,
+        'set ${_s.currentSet}, ${sheetOf(team).teamName} $sign pt, score '
+        '$before -> ${scoreOf(Team.home)}:${scoreOf(Team.away)} (home:away).');
     notifyListeners();
     await _save();
   }
 
   /// Referee override: play can start without the pre-match signatures.
-  Future<void> waivePreMatchSignatures({required String referee}) async {
+  Future<void> waivePreMatchSignatures(
+      {required String referee, SignatureInk? ink}) async {
     if (_preMatchWaived) return;
     _preMatchWaived = true;
-    final missing = preMatchSlots.where((id) => !_signatures.containsKey(id));
-    _addRemark(referee,
-        'match started without pre-match signatures (${missing.length} missing).');
+    final missing =
+        requiredPreMatchSlots.where((id) => !_signatures.containsKey(id));
+    _addRemark(referee, ink,
+        'match started without captain signatures (${missing.length} missing).');
     notifyListeners();
     await _save();
   }
 
   /// Referee override: unlocks a signed-off match so it can be changed. The
   /// APPROVAL signatures are wiped, since they no longer match the sheet.
-  Future<void> unlockSignedSheet({required String referee}) async {
+  Future<void> unlockSignedSheet({required String referee, SignatureInk? ink}) async {
     if (!isSignedOff) return;
     _clearPostMatchSignatures();
-    _addRemark(referee, 'signed sheet unlocked for a correction; '
+    _addRemark(referee, ink, 'signed sheet unlocked for a correction; '
         'approval signatures cleared.');
     notifyListeners();
     await _save();
@@ -1160,12 +1180,19 @@ class MatchEngine extends ChangeNotifier {
     }
   }
 
-  void _addRemark(String referee, String text) {
+  void _addRemark(String referee, SignatureInk? ink, String text) {
     final t = _clock();
     String two(int n) => n.toString().padLeft(2, '0');
-    final line = 'Ref override ($referee, ${two(t.hour)}:${two(t.minute)}): $text';
-    _notes = _notes.trim().isEmpty ? line : '${_notes.trimRight()}\n$line';
+    _overrides.add(RefereeOverride(
+      'Ref override (${referee.replaceAll('referee', 'ref')}, '
+      '${two(t.hour)}:${two(t.minute)}): $text',
+      ink ?? const [],
+    ));
   }
+
+  /// Every referee override so far, oldest first. Each goes in the REMARKS
+  /// box after the notes, with the referee's signature beside it.
+  List<RefereeOverride> get overrides => List.unmodifiable(_overrides);
 
   // ---------------------------------------------------------------------------
   // Substitutions
@@ -1229,4 +1256,28 @@ class MatchEngine extends ChangeNotifier {
       ),
     );
   }
+}
+
+/// A drawn signature: strokes of [x, y] points, each 0 to 1 across the pad.
+typedef SignatureInk = List<List<List<double>>>;
+
+/// One referee override: the line for the REMARKS box and the signature of
+/// the referee who authorised it (empty if none was taken).
+class RefereeOverride {
+  final String text;
+  final SignatureInk ink;
+  const RefereeOverride(this.text, this.ink);
+
+  Map<String, dynamic> toJson() => {'text': text, 'ink': ink};
+
+  factory RefereeOverride.fromJson(Map<String, dynamic> j) => RefereeOverride(
+        j['text'] as String? ?? '',
+        [
+          for (final stroke in (j['ink'] as List? ?? const []))
+            [
+              for (final p in stroke as List)
+                [for (final n in p as List) (n as num).toDouble()]
+            ]
+        ],
+      );
 }

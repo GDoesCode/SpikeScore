@@ -29,7 +29,9 @@ Future<void> showRefereeOverride(BuildContext context) async {
             onTap: () async {
               Navigator.pop(sheetContext);
               final ref = await _confirmReferee(context, 'Start without signatures');
-              if (ref != null) await engine.waivePreMatchSignatures(referee: ref);
+              if (ref != null) {
+                await engine.waivePreMatchSignatures(referee: ref.who, ink: ref.ink);
+              }
             },
           ),
         if (e.isSignedOff)
@@ -41,7 +43,9 @@ Future<void> showRefereeOverride(BuildContext context) async {
             onTap: () async {
               Navigator.pop(sheetContext);
               final ref = await _confirmReferee(context, 'Unlock the scoresheet');
-              if (ref != null) await engine.unlockSignedSheet(referee: ref);
+              if (ref != null) {
+                await engine.unlockSignedSheet(referee: ref.who, ink: ref.ink);
+              }
             },
           ),
         if (!e.needsFirstServe)
@@ -56,7 +60,7 @@ Future<void> showRefereeOverride(BuildContext context) async {
               if (ref != null && context.mounted) {
                 await showDialog<void>(
                   context: context,
-                  builder: (_) => _ScoreEditor(referee: ref),
+                  builder: (_) => _ScoreEditor(referee: ref.who, ink: ref.ink),
                 );
               }
             },
@@ -78,7 +82,7 @@ Future<void> showRefereeOverride(BuildContext context) async {
               const SizedBox(height: 6),
               const Text(
                 'Needs the 1st or 2nd referee to sign. Each override is written '
-                'in the remarks on the scoresheet.',
+                'in the remarks on the scoresheet, with their signature beside it.',
                 style: TextStyle(color: Colors.white70, fontSize: 13),
               ),
               const SizedBox(height: 12),
@@ -122,9 +126,11 @@ class _ActionTile extends StatelessWidget {
       );
 }
 
-/// Asks which referee is authorising [what] and has them sign. Returns
-/// "1st referee" or "2nd referee", or null if cancelled.
-Future<String?> _confirmReferee(BuildContext context, String what) async {
+/// Asks which referee is authorising [what] and has them sign. Returns who
+/// ("1st referee" or "2nd referee") and their signature, which goes beside
+/// the override in the REMARKS box; null if cancelled.
+Future<({String who, SignatureInk ink})?> _confirmReferee(
+    BuildContext context, String what) async {
   if (!context.mounted) return null;
   final who = await showDialog<String>(
     context: context,
@@ -155,15 +161,16 @@ Future<String?> _confirmReferee(BuildContext context, String what) async {
     builder: (_) => SignaturePadDialog(title: '$who: sign to confirm'),
   );
   if (ink == null || ink.isEmpty) return null;
-  return who;
+  return (who: who, ink: ink);
 }
 
 /// Plus and minus buttons for each team's score in the current set. Nothing
 /// changes until Apply, so a few taps make one entry in the remarks.
 class _ScoreEditor extends StatefulWidget {
-  const _ScoreEditor({required this.referee});
+  const _ScoreEditor({required this.referee, required this.ink});
 
   final String referee;
+  final SignatureInk ink;
 
   @override
   State<_ScoreEditor> createState() => _ScoreEditorState();
@@ -236,7 +243,8 @@ class _ScoreEditorState extends State<_ScoreEditor> {
                   Navigator.pop(context);
                   for (final t in Team.values) {
                     if (_delta[t] != 0) {
-                      await engine.adjustScore(t, _delta[t]!, referee: widget.referee);
+                      await engine.adjustScore(t, _delta[t]!,
+                          referee: widget.referee, ink: widget.ink);
                     }
                   }
                 },

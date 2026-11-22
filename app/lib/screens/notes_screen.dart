@@ -92,6 +92,29 @@ class _NotesScreenState extends State<NotesScreen> {
                 ),
               ),
             ),
+            if (_engine.overrides.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              const Text(
+                'Referee overrides (printed after your notes, each with the '
+                "referee's signature; they can't be edited here)",
+                style: TextStyle(color: Colors.amberAccent, fontSize: 12),
+              ),
+              const SizedBox(height: 4),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 120),
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [
+                    for (final o in _engine.overrides)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: Text(o.text,
+                            style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                      ),
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
       ),

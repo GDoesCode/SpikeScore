@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:spikescore/match_engine.dart';
 import 'package:spikescore/scoresheet/signature_slots.dart';
+import 'package:spikescore/screen_orientation.dart';
 import 'package:spikescore/screens/match_screen.dart';
 import 'package:spikescore/screens/sign_off_screen.dart';
 
@@ -103,18 +104,19 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('MVP for Away Team: not picked yet'), findsOneWidget);
 
+    ScreenOrientation.set(ScreenOrientation.landscape); // as from the match
     await tester.tap(tile);
     await tester.pumpAndSettle();
     expect(find.text('MVP for Away Team'), findsOneWidget);
+    expect(ScreenOrientation.current, ScreenOrientation.portrait);
     expect(find.text('#16  Q. Hall'), findsNothing); // never played
-    await tester.scrollUntilVisible(find.text('#8  M. White'), 40,
-        scrollable: find
-            .descendant(of: find.byType(AlertDialog), matching: find.byType(Scrollable))
-            .last);
+    await tester.scrollUntilVisible(find.text('#8  M. White'), 60,
+        scrollable: find.byType(Scrollable).last);
     await tester.pumpAndSettle();
     await tester.tap(find.text('#8  M. White'));
     await tester.pumpAndSettle();
     expect(e.mvpOf(Team.away), 8);
+    expect(ScreenOrientation.current, ScreenOrientation.landscape);
     expect(find.text('Home Team captain: sign to confirm'), findsNothing);
     expect(find.text('Sign with your finger in the white box.'), findsOneWidget);
   });

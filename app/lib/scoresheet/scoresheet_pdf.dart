@@ -443,21 +443,32 @@ class _Painter {
 
   // ------------------------------------------------------------------ remarks
   /// Writes the notes on the six ruled lines of the REMARKS box.
+  /// Referee overrides follow the notes, each starting on a new line with
+  /// the referee's signature at the right-hand end of its last line.
   void _drawRemarks(ScoresheetData data) {
-    if (data.notes.trim().isEmpty) return;
+    if (data.notes.trim().isEmpty && data.overrides.isEmpty) return;
     const pad = 1.5;
+    const sigWidth = 36.0;
     final rows = layout.remarksRows;
     final widths = [for (final r in rows) r[1] - r[0] - 2 * pad];
 
-    final fit = fitRemarks(
+    final fit = fitRemarksWithOverrides(
       data.notes,
+      [for (final o in data.overrides) o.text],
       widths,
+      sigWidth,
       (s, size) => _width(_clean(s), false, size),
     );
     for (var i = 0; i < fit.lines.length && i < rows.length; i++) {
       // Text sits just above the ruled line at the bottom of its row.
       _text(fit.lines[i], rows[i][0] + pad, rows[i][2] - 1.9, fit.size);
     }
+    fit.signatureRows.forEach((index, row) {
+      final ink = data.overrides[index].ink;
+      if (ink.isEmpty || row >= rows.length) return;
+      final r = rows[row];
+      _drawInk(ink, [r[1] - pad - sigWidth + 2, r[2] - 8.4, r[1] - pad, r[2] - 0.4]);
+    });
   }
 
   // ------------------------------------------------- match details + officials

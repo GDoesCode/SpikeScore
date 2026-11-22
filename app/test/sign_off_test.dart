@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:spikescore/demo_data.dart';
 import 'package:spikescore/match_engine.dart';
+import 'package:spikescore/scoresheet/remarks_text.dart';
 import 'package:spikescore/scoresheet/scoresheet_data.dart';
 import 'package:spikescore/scoresheet/signature_slots.dart';
 
@@ -73,13 +74,28 @@ void main() {
       expect(e.awaitingPreMatchSignatures, isFalse);
     });
 
+    test('play waits for the two captains, not the coaches', () async {
+      final e = await newEngine();
+      e.officials = {
+        Team.home: const [Official('C', 'Coach Carter')],
+        Team.away: const [Official('C', 'Coach Taylor')],
+      };
+      await coinToss(e);
+      await e.setSignature(SignatureSlots.captain(Team.home), ink);
+      await e.setSignature(SignatureSlots.coach(Team.home), ink);
+      expect(e.awaitingPreMatchSignatures, isTrue);
+      await e.setSignature(SignatureSlots.captain(Team.away), ink);
+      expect(e.awaitingPreMatchSignatures, isFalse);
+      expect(e.preMatchSigned, isTrue);
+    });
+
     test('a referee can let the match start without them', () async {
       final e = await newEngine();
       await coinToss(e);
       await e.waivePreMatchSignatures(referee: '1st referee');
       expect(e.awaitingPreMatchSignatures, isFalse);
-      expect(e.notes, contains('Ref override (1st referee'));
-      expect(e.notes, contains('2 missing'));
+      expect(e.overrides.map((o) => o.text).join('\n'), contains('Ref override (1st ref,'));
+      expect(e.overrides.map((o) => o.text).join('\n'), contains('2 missing'));
 
       final reloaded = await newEngine();
       expect(reloaded.preMatchWaived, isTrue);
@@ -148,7 +164,7 @@ void main() {
       expect(e.isSignedOff, isFalse);
       expect(e.canUndo, isTrue);
       expect(e.signatures.keys, [SignatureSlots.captain(Team.home)]);
-      expect(e.notes, contains('unlocked'));
+      expect(e.overrides.map((o) => o.text).join('\n'), contains('unlocked'));
     });
   });
 
@@ -166,8 +182,8 @@ void main() {
       expect(e.awayScore, 1);
       expect(e.servingTeam, server);
       expect(e.serviceRounds.length, rounds);
-      expect(e.notes, contains('Ref override (2nd referee'));
-      expect(e.notes, contains('5:3 -> 5:1'));
+      expect(e.overrides.map((o) => o.text).join('\n'), contains('Ref override (2nd ref,'));
+      expect(e.overrides.map((o) => o.text).join('\n'), contains('5:3 -> 5:1'));
 
       await e.adjustScore(Team.home, 1, referee: '2nd referee');
       expect(e.homeScore, 6);
@@ -273,6 +289,48 @@ void main() {
           {Team.home: 7, Team.away: 2});
       await reloaded.resetMatch();
       expect(reloaded.mvpOf(Team.home), isNull);
+    });
+  });
+
+  group('override signatures', () {
+    test('are kept with each override, separate from the notes', () async {
+      final e = await newEngine();
+      await e.setNotes('Junior #7');
+      await coinToss(e);
+      await e.waivePreMatchSignatures(referee: '1st referee', ink: ink);
+      await score(e, Team.home, 3);
+      await e.adjustScore(Team.home, -1, referee: '2nd referee', ink: ink);
+
+      expect(e.notes, 'Junior #7');
+      expect(e.overrides.length, 2);
+      expect(e.overrides[1].text, startsWith('Ref override (2nd ref,'));
+      expect(e.overrides[1].ink, ink);
+
+      final reloaded = await newEngine();
+      expect(reloaded.overrides.length, 2);
+      expect(reloaded.overrides.first.ink, ink);
+      expect(ScoresheetData.fromEngine(reloaded).overrides.length, 2);
+
+      await reloaded.resetMatch();
+      expect(reloaded.overrides, isEmpty);
+    });
+
+    test('each start a new line on the sheet, with room for the signature', () {
+      double measure(String s, double size) => s.length * size * 0.5;
+      final fit = fitRemarksWithOverrides(
+        'Junior #7',
+        ['Ref override (1st referee, 21:14): one', 'Ref override (2nd referee, 21:30): two'],
+        const [100, 120, 120, 120, 120, 120],
+        36,
+        measure,
+      );
+      expect(fit.lines.first, 'Junior #7');
+      expect(fit.lines[fit.signatureRows[0]!], endsWith('one'));
+      expect(fit.lines[fit.signatureRows[1]!], endsWith('two'));
+      expect(fit.signatureRows[1]! > fit.signatureRows[0]!, isTrue);
+      for (final l in fit.lines.skip(1)) {
+        expect(measure(l, fit.size), lessThanOrEqualTo(120 - 36));
+      }
     });
   });
 }
