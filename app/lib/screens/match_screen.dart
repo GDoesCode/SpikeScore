@@ -232,8 +232,7 @@ class _MatchScreenState extends State<MatchScreen> {
                 else if (engine.awaitingPreMatchSignatures)
                   _buildLockOverlay(
                     'Waiting for the team sheet signatures',
-                    'Captains${Team.values.any(engine.hasCoach) ? ' and coaches' : ''} '
-                        'sign to confirm the team sheets before the first rally.',
+                    'Both captains sign to confirm the team sheets before the first rally.',
                     'Open signatures',
                     _openPreMatchSigning,
                   )

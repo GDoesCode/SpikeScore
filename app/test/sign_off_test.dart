@@ -73,6 +73,21 @@ void main() {
       expect(e.awaitingPreMatchSignatures, isFalse);
     });
 
+    test('play waits for the two captains, not the coaches', () async {
+      final e = await newEngine();
+      e.officials = {
+        Team.home: const [Official('C', 'Coach Carter')],
+        Team.away: const [Official('C', 'Coach Taylor')],
+      };
+      await coinToss(e);
+      await e.setSignature(SignatureSlots.captain(Team.home), ink);
+      await e.setSignature(SignatureSlots.coach(Team.home), ink);
+      expect(e.awaitingPreMatchSignatures, isTrue);
+      await e.setSignature(SignatureSlots.captain(Team.away), ink);
+      expect(e.awaitingPreMatchSignatures, isFalse);
+      expect(e.preMatchSigned, isTrue);
+    });
+
     test('a referee can let the match start without them', () async {
       final e = await newEngine();
       await coinToss(e);

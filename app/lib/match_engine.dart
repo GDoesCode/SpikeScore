@@ -1040,7 +1040,14 @@ class MatchEngine extends ChangeNotifier {
 
   static bool isPostMatchSlot(String slotId) => postMatchSlots.contains(slotId);
 
-  bool get preMatchSigned => preMatchSlots.every(_signatures.containsKey);
+  /// The signatures play waits for: the two captains. Coaches aren't always
+  /// there at the start, so they can sign but play doesn't wait for them.
+  static final List<String> requiredPreMatchSlots = [
+    for (final t in Team.values) SignatureSlots.captain(t),
+  ];
+
+  bool get preMatchSigned =>
+      requiredPreMatchSlots.every(_signatures.containsKey);
 
   /// True once a rally, time-out or substitution has been recorded.
   bool get playHasStarted => _events.any((e) =>
@@ -1052,7 +1059,7 @@ class MatchEngine extends ChangeNotifier {
   bool get preMatchWaived => _preMatchWaived;
 
   /// After the first coin toss (sides and first serve), play waits until the
-  /// captains (and coaches) have signed to confirm the team sheets, or a
+  /// two captains have signed to confirm the team sheets, or a
   /// referee lets the match go ahead without them.
   bool get awaitingPreMatchSignatures =>
       _s.currentSet == 1 &&
@@ -1102,7 +1109,8 @@ class MatchEngine extends ChangeNotifier {
   Future<void> waivePreMatchSignatures({required String referee}) async {
     if (_preMatchWaived) return;
     _preMatchWaived = true;
-    final missing = preMatchSlots.where((id) => !_signatures.containsKey(id));
+    final missing =
+        requiredPreMatchSlots.where((id) => !_signatures.containsKey(id));
     _addRemark(referee,
         'match started without pre-match signatures (${missing.length} missing).');
     notifyListeners();

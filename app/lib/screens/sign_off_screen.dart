@@ -39,7 +39,7 @@ class SignOffScreen extends StatelessWidget {
     String label(String id) {
       for (final t in Team.values) {
         if (id == SignatureSlots.captain(t)) return '${name(t)} captain';
-        if (id == SignatureSlots.coach(t)) return '${name(t)} coach';
+        if (id == SignatureSlots.coach(t)) return '${name(t)} coach (optional)';
         if (id == SignatureSlots.approvalCaptain(t)) return '${name(t)} captain';
       }
       final j = SignatureSlots.lineJudges.indexOf(id);
@@ -61,8 +61,9 @@ class SignOffScreen extends StatelessWidget {
 
     final winner = engine.winningTeam;
     final header = pre
-        ? 'Captains${Team.values.any(engine.hasCoach) ? ' and coaches' : ''} sign '
-            'to confirm the team sheets. Play starts once everyone listed has signed.'
+        ? 'Captains sign to confirm the team sheets. Play starts once both '
+            'captains have signed.'
+            '${Team.values.any(engine.hasCoach) ? ' Coaches can sign too if they are here, but play does not wait for them.' : ''}'
         : winner == null
             ? 'Referees, scorers, line judges and captains sign the scoresheet.'
             : '${name(winner)} won the match '
