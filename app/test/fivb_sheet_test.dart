@@ -31,7 +31,6 @@ Future<void> playSet(MatchEngine e,
 /// A full 5-set match, 3:2, with subs, time-outs and a change of ends.
 Future<MatchEngine> fiveSetMatch() async {
   final e = await newEngine();
-  await e.setMatchMode(MatchMode.nationalLeague5Set);
   await e.setScoresheetFormat(ScoresheetFormat.fivb);
   e.matchInfo = const MatchInfo(
     competition: 'National League',
@@ -204,10 +203,46 @@ void main() {
       expect(again.scoresheetFormat, ScoresheetFormat.fivb);
     });
 
-    test('the sheet can be changed during a match', () async {
+    test('choosing a sheet sets the number of sets it has room for', () async {
+      final e = await newEngine();
+      expect(e.maxSets, 3);
+      await e.setScoresheetFormat(ScoresheetFormat.fivb);
+      expect(e.matchMode, MatchMode.nationalLeague5Set);
+      expect(e.maxSets, 5);
+      await e.setScoresheetFormat(ScoresheetFormat.bva);
+      expect(e.matchMode, MatchMode.localLeague3Set);
+      expect(e.maxSets, 3);
+    });
+
+    test('the number of sets cannot be changed away from the sheet', () async {
+      final e = await newEngine();
+      await e.setMatchMode(MatchMode.nationalLeague5Set); // BVA: 3 only
+      expect(e.maxSets, 3);
+      await e.setScoresheetFormat(ScoresheetFormat.fivb);
+      await e.setMatchMode(MatchMode.localLeague3Set); // FIVB: 5 only
+      expect(e.maxSets, 5);
+      expect(ScoresheetFormat.bva.setsAreChoosable, isFalse);
+      expect(ScoresheetFormat.fivb.setsAreChoosable, isFalse);
+    });
+
+    test('during a match only a sheet with room for it can be chosen', () async {
       final e = await newEngine();
       await playSet(e, winner: Team.home);
+      expect(e.canUseScoresheet(ScoresheetFormat.bva), isTrue);
+      expect(e.canUseScoresheet(ScoresheetFormat.fivb), isFalse);
       await e.setScoresheetFormat(ScoresheetFormat.fivb);
+      expect(e.scoresheetFormat, ScoresheetFormat.bva);
+      expect(e.maxSets, 3);
+    });
+
+    test('old settings with a sheet that does not fit get a sheet that does',
+        () async {
+      SharedPreferences.setMockInitialValues({
+        'spikescore_settings_v1':
+            '{"mode":"nationalLeague5Set","rules":{},"sheet":"bva"}',
+      });
+      final e = await newEngine();
+      expect(e.maxSets, 5); // the number of sets is kept
       expect(e.scoresheetFormat, ScoresheetFormat.fivb);
     });
   });
@@ -229,7 +264,7 @@ void main() {
 
     test('two sets won is not a 5-set match win', () async {
       final e = await newEngine();
-      await e.setMatchMode(MatchMode.nationalLeague5Set);
+      await e.setScoresheetFormat(ScoresheetFormat.fivb);
       await playSet(e, winner: Team.home);
       await e.startNewSet();
       await playSet(e, winner: Team.home);
@@ -242,7 +277,7 @@ void main() {
   group('ScoresheetPdf.buildFivb', () {
     test('builds an empty 5-set sheet', () async {
       final e = await newEngine();
-      await e.setMatchMode(MatchMode.nationalLeague5Set);
+      await e.setScoresheetFormat(ScoresheetFormat.fivb);
       final bytes = await buildFivb(ScoresheetData.fromEngine(e));
       expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
       keep('fivb_blank.pdf', bytes);

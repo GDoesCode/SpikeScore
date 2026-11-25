@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 // Adjust these paths if your test folder isn't next to lib/.
 import 'package:spikescore/demo_data.dart';
 import 'package:spikescore/match_engine.dart';
+import 'package:spikescore/scoresheet/scoresheet_format.dart';
 import 'package:spikescore/match_rules.dart';
 import 'package:spikescore/scoresheet/scoresheet_data.dart';
 import 'package:spikescore/scoresheet/scoresheet_pdf.dart';
@@ -41,7 +42,7 @@ void main() {
     test('only the 3-set format is supported', () async {
       final e = await newEngine();
       expect(ScoresheetData.isSupported(e), isTrue);
-      await e.setMatchMode(MatchMode.nationalLeague5Set);
+      await e.setScoresheetFormat(ScoresheetFormat.fivb);
       expect(ScoresheetData.isSupported(e), isFalse);
     });
 
