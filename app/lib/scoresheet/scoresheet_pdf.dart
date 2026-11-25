@@ -5,13 +5,13 @@ import 'package:pdf/pdf.dart';
 import '../match_engine.dart' show MatchEngine, Team;
 import '../models.dart';
 import '../demo_data.dart' show Official;
-import 'fivb_sheet.dart';
 import 'scoresheet_data.dart';
 import 'scoresheet_layout.dart';
 import 'remarks_text.dart';
 import 'signature_slots.dart';
 
-/// Draws a match onto the blank BVA 3-set scoresheet.
+/// Draws a match onto a blank scoresheet: the BVA 3-set sheet or the FIVB
+/// international scoresheet, each a picture plus a layout file.
 ///
 /// The blank sheet is embedded as a picture (so the page looks exactly like the
 /// original) and everything the app knows is written on top of it at the
@@ -35,24 +35,6 @@ class ScoresheetPdf {
     g.drawImage(image, 0, 0, layout.pageWidth, layout.pageHeight);
 
     _Painter(doc, g, layout).draw(data);
-    return doc.save();
-  }
-
-  /// Draws the match on a sheet laid out like the FIVB international
-  /// scoresheet. The form itself is drawn too (see [FivbSheet]), so no
-  /// picture is needed. Its size follows the match: 3 or 5 sets.
-  static Future<Uint8List> buildFivb(ScoresheetData data) async {
-    final form = FivbSheet.build(maxSets: data.decidingSet);
-    final layout = form.layout;
-    final doc = PdfDocument();
-    final page = PdfPage(
-      doc,
-      pageFormat: PdfPageFormat(layout.pageWidth, layout.pageHeight),
-    );
-    final g = page.getGraphics();
-    final painter = _Painter(doc, g, layout);
-    painter.drawForm(form.marks);
-    painter.draw(data);
     return doc.save();
   }
 }
@@ -169,8 +151,9 @@ class _Painter {
   void _scorePair(int own, int opp, double colonX, double cy,
       [double size = 6.4]) {
     final baseline = cy + 0.36 * size;
-    _text('$own', colonX - 1.4, baseline, size, align: _Align.right);
-    _text('$opp', colonX + 1.4, baseline, size);
+    final gap = layout.colonGap;
+    _text('$own', colonX - gap, baseline, size, align: _Align.right);
+    _text('$opp', colonX + gap, baseline, size);
   }
 
   void _circle(double cx, double cy, double r, double width) {
@@ -183,43 +166,6 @@ class _Painter {
     g.setLineWidth(width);
     g.drawLine(x0, _y(y0), x1, _y(y1));
     g.strokePath();
-  }
-
-  // ----------------------------------------------------------- blank form
-  /// Prints the lines and labels of a form drawn by the app, in black, before
-  /// anything is written on it.
-  void drawForm(List<FormMark> marks) {
-    final black = PdfColor(0, 0, 0);
-    g.setStrokeColor(black);
-    g.setFillColor(black);
-    for (final mk in marks) {
-      switch (mk) {
-        case FormRect():
-          if (mk.fill != null) {
-            g.setFillColor(PdfColor(mk.fill!, mk.fill!, mk.fill!));
-            g.drawRect(mk.x0, _y(mk.y1), mk.x1 - mk.x0, mk.y1 - mk.y0);
-            g.fillPath();
-            g.setFillColor(black);
-          }
-          g.setLineWidth(mk.width);
-          g.drawRect(mk.x0, _y(mk.y1), mk.x1 - mk.x0, mk.y1 - mk.y0);
-          g.strokePath();
-        case FormLine():
-          _line(mk.x0, mk.y0, mk.x1, mk.y1, mk.width);
-        case FormCircle():
-          _circle(mk.cx, mk.cy, mk.r, mk.width);
-        case FormText():
-          _text(mk.text, mk.x, mk.baseline, mk.size,
-              isBold: mk.bold,
-              align: switch (mk.align) {
-                FormAlign.left => _Align.left,
-                FormAlign.center => _Align.center,
-                FormAlign.right => _Align.right,
-              });
-      }
-    }
-    g.setStrokeColor(_ink);
-    g.setFillColor(_ink);
   }
 
   // ------------------------------------------------------------ point grids
@@ -576,7 +522,13 @@ class _Painter {
       _textInBox(text, box, size, isBold: isBold, align: align, pad: 2.0);
     }
 
-    field(info.competition, 'competition');
+    // A sheet with no Division box (FIVB) gets it after the competition.
+    final competition = (m.containsKey('division') || info.division.isEmpty)
+        ? info.competition
+        : [info.competition, 'Division ${info.division}']
+            .where((s) => s.isNotEmpty)
+            .join(' - ');
+    field(competition, 'competition');
 
     // MOST VALUABLE PLAYERS: one row for Team A, one for Team B.
     for (final (team, key) in [(data.teamA, 'mvpA'), (data.teamB, 'mvpB')]) {
@@ -627,7 +579,44 @@ class _Painter {
       }
     }
 
+    // Roles printed on the sheet: each official goes on their role's row.
+    void byRole(Team team, List<double> nameX) {
+      final free = List<bool>.filled(o.rows.length, true);
+      final unplaced = <Official>[];
+      for (final off in data.officials[team] ?? const <Official>[]) {
+        final role = off.role.toUpperCase().replaceAll(' ', '');
+        final candidates = role == 'AC' ? ['AC1', 'AC2'] : [role];
+        final row = candidates
+            .map((r) => o.roleRows[r])
+            .firstWhere((r) => r != null && r < free.length && free[r],
+                orElse: () => null);
+        if (row == null) {
+          unplaced.add(off);
+          continue;
+        }
+        free[row] = false;
+        final y = o.rows[row];
+        _textInBox(off.name, [nameX[0], y[0], nameX[1], y[1]], size,
+            align: _Align.left, pad: 2.0);
+      }
+      // Anyone whose role has no row of its own: first free row, with the
+      // role written in front of the name.
+      for (final off in unplaced) {
+        final row = free.indexOf(true);
+        if (row < 0) break;
+        free[row] = false;
+        final y = o.rows[row];
+        _textInBox('${off.role} ${off.name}', [nameX[0], y[0], nameX[1], y[1]],
+            size, align: _Align.left, pad: 2.0);
+      }
+    }
+
     // Left-hand table belongs to Team A, right-hand to Team B.
+    if (o.roleRows.isNotEmpty) {
+      byRole(data.teamA, o.leftNameX);
+      byRole(data.teamB, o.rightNameX);
+      return;
+    }
     side(data.teamA, o.leftRoleX, o.leftNameX);
     side(data.teamB, o.rightRoleX, o.rightNameX);
   }
@@ -776,8 +765,14 @@ class _Painter {
     final tx = r.totalSetDurationX;
     final total = data.totalSetMinutes;
     if (tx != null && total != null) {
-      _textInBox('$total', [tx[0], r.totalRow[0], tx[1], r.totalRow[1]], 6.5,
-          isBold: true);
+      final base = r.totalSetDurationBaselineY;
+      if (base != null) {
+        _text('$total', (tx[0] + tx[1]) / 2, base, 7.0,
+            isBold: true, align: _Align.center);
+      } else {
+        _textInBox('$total', [tx[0], r.totalRow[0], tx[1], r.totalRow[1]], 6.5,
+            isBold: true);
+      }
     }
 
     // START time and END time at the top of each set.
@@ -796,8 +791,23 @@ class _Painter {
       if (colonX != null) _clock(t, colonX, y, size);
     }
 
-    clock(data.matchStart, r.startColonX);
-    clock(data.matchEnd, r.endColonX);
+    // "16 h 02 mn": numbers in front of the printed h and mn.
+    void hoursMinutes(DateTime? t, double? hx, double? mx) {
+      if (t == null || hx == null || mx == null) return;
+      _text('${t.hour}', hx, y, size, align: _Align.right);
+      _text(_two(t.minute), mx, y, size, align: _Align.right);
+    }
+
+    if (r.startHoursRightX != null) {
+      hoursMinutes(data.matchStart, r.startHoursRightX, r.startMinutesRightX);
+    } else {
+      clock(data.matchStart, r.startColonX);
+    }
+    if (r.endHoursRightX != null) {
+      hoursMinutes(data.matchEnd, r.endHoursRightX, r.endMinutesRightX);
+    } else {
+      clock(data.matchEnd, r.endColonX);
+    }
 
     final minutes = data.matchDurationMinutes;
     final hx = r.durationHoursRightX, mx = r.durationMinutesRightX;

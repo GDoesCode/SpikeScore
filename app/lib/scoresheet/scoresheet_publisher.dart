@@ -14,21 +14,16 @@ import 'scoresheet_preview_screen.dart';
 /// preview of it, whose Share button hands it to the phone's share sheet
 /// (save to Files, email, print, ...).
 class ScoresheetPublisher {
-  static const _backgroundAsset = 'assets/scoresheet/bva_3set_blank.jpg';
-  static const _layoutAsset = 'assets/scoresheet/bva_3set_layout.json';
-
   static bool _busy = false;
 
   /// Builds the PDF bytes from whatever has been recorded so far. Sets that
   /// haven't been played, and anything the app doesn't record, stay blank.
   static Future<Uint8List> buildPdf(MatchEngine engine) async {
     final data = ScoresheetData.fromEngine(engine);
-    if (engine.scoresheetFormat == ScoresheetFormat.fivb) {
-      return ScoresheetPdf.buildFivb(data);
-    }
+    final format = engine.scoresheetFormat;
     final background =
-        (await rootBundle.load(_backgroundAsset)).buffer.asUint8List();
-    final layoutJson = await rootBundle.loadString(_layoutAsset);
+        (await rootBundle.load(format.backgroundAsset)).buffer.asUint8List();
+    final layoutJson = await rootBundle.loadString(format.layoutAsset);
     return ScoresheetPdf.build(
       data,
       background: background,
@@ -47,8 +42,8 @@ class ScoresheetPublisher {
         content: Text(format == ScoresheetFormat.bva
             ? 'The BVA scoresheet is for 3-set matches only. '
                 'Choose the FIVB scoresheet in Settings for 5 sets.'
-            : 'The ${format.label} scoresheet has no room for '
-                '${engine.maxSets} sets.'),
+            : 'The FIVB scoresheet is for 5-set matches only. '
+                'Choose the BVA scoresheet in Settings for 3 sets.'),
       ));
       return;
     }

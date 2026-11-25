@@ -3,9 +3,7 @@ enum ScoresheetFormat {
   /// The Berkshire Volleyball Association 3-set sheet (the default).
   bva,
 
-  /// A sheet laid out like the FIVB international scoresheet: sets 1 to 4
-  /// in two rows, the deciding set in three sections across the page, and
-  /// the teams, results and approval boxes beside them. Works for 3-set and
+  /// The official FIVB international scoresheet (2013 edition, A3), for
   /// 5-set matches.
   fivb;
 
@@ -18,13 +16,22 @@ enum ScoresheetFormat {
         ScoresheetFormat.bva =>
           'The Berkshire Volleyball Association sheet. 3-set matches only.',
         ScoresheetFormat.fivb =>
-          'Laid out like the FIVB international scoresheet. 3 or 5 sets.',
+          'The official FIVB international scoresheet. 5-set matches only.',
+      };
+
+  /// The blank sheet (a picture) and where every box is on it.
+  String get backgroundAsset => 'assets/scoresheet/${_file}_blank.jpg';
+  String get layoutAsset => 'assets/scoresheet/${_file}_layout.json';
+
+  String get _file => switch (this) {
+        ScoresheetFormat.bva => 'bva_3set',
+        ScoresheetFormat.fivb => 'fivb_5set',
       };
 
   /// True if this sheet has room for a match of [maxSets] sets.
   bool fits(int maxSets) => switch (this) {
         ScoresheetFormat.bva => maxSets == 3,
-        ScoresheetFormat.fivb => maxSets == 3 || maxSets == 5,
+        ScoresheetFormat.fivb => maxSets == 5,
       };
 
   static ScoresheetFormat fromName(Object? name) => ScoresheetFormat.values
