@@ -10,7 +10,8 @@ import 'scoresheet_layout.dart';
 import 'remarks_text.dart';
 import 'signature_slots.dart';
 
-/// Draws a match onto the blank BVA 3-set scoresheet.
+/// Draws a match onto a blank scoresheet: the BVA 3-set sheet or the FIVB
+/// international scoresheet, each a picture plus a layout file.
 ///
 /// The blank sheet is embedded as a picture (so the page looks exactly like the
 /// original) and everything the app knows is written on top of it at the
@@ -150,8 +151,9 @@ class _Painter {
   void _scorePair(int own, int opp, double colonX, double cy,
       [double size = 6.4]) {
     final baseline = cy + 0.36 * size;
-    _text('$own', colonX - 1.4, baseline, size, align: _Align.right);
-    _text('$opp', colonX + 1.4, baseline, size);
+    final gap = layout.colonGap;
+    _text('$own', colonX - gap, baseline, size, align: _Align.right);
+    _text('$opp', colonX + gap, baseline, size);
   }
 
   void _circle(double cx, double cy, double r, double width) {
@@ -412,37 +414,36 @@ class _Painter {
         isBold: true, align: _Align.right);
 
     for (final sd in data.sets) {
-      switch (sd.number) {
-        case 1:
-          {
-            // Team A starts on the left.
-            _drawBlock('S1A', data.teamA, sd, data, _Segment.all);
-            _drawBlock('S1B', data.teamB, sd, data, _Segment.all);
-            break;
-          }
-        case 2:
-          {
-            // The teams swap sides.
-            _drawBlock('S2L', data.teamB, sd, data, _Segment.all);
-            _drawBlock('S2R', data.teamA, sd, data, _Segment.all);
-            break;
-          }
-        case 3:
-          {
-            // New coin toss: whichever team was chosen to start on the left.
-            final left = sd.leftTeam(data.teamA);
-            final right = left.other;
-            if (sd.splitsAtChange(left, data.teamA)) {
-              _drawBlock('S3L', left, sd, data, _Segment.before);
-              _drawBlock('S3C', left, sd, data, _Segment.after);
-            } else {
-              _drawBlock('S3L', left, sd, data, _Segment.all);
-            }
-            _drawBlock('S3R', right, sd, data, _Segment.all);
-            break;
-          }
-        default:
-          break; // the 3-set sheet has no room for more
+      final n = sd.number;
+      // Block names: S<set>L / S<set>R (the BVA sheet calls set 1's blocks
+      // S1A / S1B), plus S<set>C for the left-hand team after the change of
+      // ends in the deciding set.
+      String? key(String side, String alt) {
+        if (layout.blocks.containsKey('S$n$alt')) return 'S$n$alt';
+        if (layout.blocks.containsKey('S$n$side')) return 'S$n$side';
+        return null; // the sheet has no room for this set
+      }
+
+      final leftKey = key('L', 'A'), rightKey = key('R', 'B');
+      if (leftKey == null || rightKey == null) continue;
+
+      if (n == data.decidingSet) {
+        // New coin toss: whichever team was chosen to start on the left.
+        final left = sd.leftTeam(data.teamA);
+        final change = 'S${n}C';
+        if (sd.splitsAtChange(left, data.teamA) &&
+            layout.blocks.containsKey(change)) {
+          _drawBlock(leftKey, left, sd, data, _Segment.before);
+          _drawBlock(change, left, sd, data, _Segment.after);
+        } else {
+          _drawBlock(leftKey, left, sd, data, _Segment.all);
+        }
+        _drawBlock(rightKey, left.other, sd, data, _Segment.all);
+      } else {
+        // Team A starts on the left and the teams swap sides every set.
+        final left = n.isOdd ? data.teamA : data.teamB;
+        _drawBlock(leftKey, left, sd, data, _Segment.all);
+        _drawBlock(rightKey, left.other, sd, data, _Segment.all);
       }
     }
 
@@ -459,14 +460,15 @@ class _Painter {
   /// Referee overrides follow the notes, each starting on a new line with
   /// the referee's signature at the right-hand end of its last line.
   void _drawRemarks(ScoresheetData data) {
-    if (data.notes.trim().isEmpty && data.overrides.isEmpty) return;
+    final notes = _remarksNotes(data);
+    if (notes.trim().isEmpty && data.overrides.isEmpty) return;
     const pad = 1.5;
     const sigWidth = 36.0;
     final rows = layout.remarksRows;
     final widths = [for (final r in rows) r[1] - r[0] - 2 * pad];
 
     final fit = fitRemarksWithOverrides(
-      data.notes,
+      notes,
       [for (final o in data.overrides) o.text],
       widths,
       sigWidth,
@@ -482,6 +484,24 @@ class _Painter {
       final r = rows[row];
       _drawInk(ink, [r[1] - pad - sigWidth + 2, r[2] - 8.4, r[1] - pad, r[2] - 0.4]);
     });
+  }
+
+  /// The notes for the REMARKS box. A sheet without MOST VALUABLE PLAYERS
+  /// boxes (the FIVB layout) gets the MVPs as the first line instead.
+  String _remarksNotes(ScoresheetData data) {
+    if (layout.matchInfo.containsKey('mvpA') || data.mvp.isEmpty) {
+      return data.notes;
+    }
+    final parts = <String>[];
+    for (final (team, letter) in [(data.teamA, 'A'), (data.teamB, 'B')]) {
+      final n = data.mvp[team];
+      if (n == null) continue;
+      final players = data.teams[team]!.roster.where((p) => p.number == n);
+      final name = players.isEmpty ? '' : ' ${players.first.name}';
+      parts.add('MVP team $letter (${data.teams[team]!.name}): #$n$name');
+    }
+    final mvp = parts.join('. ');
+    return data.notes.trim().isEmpty ? mvp : '$mvp\n${data.notes}';
   }
 
   // ------------------------------------------------- match details + officials
@@ -502,7 +522,13 @@ class _Painter {
       _textInBox(text, box, size, isBold: isBold, align: align, pad: 2.0);
     }
 
-    field(info.competition, 'competition');
+    // A sheet with no Division box (FIVB) gets it after the competition.
+    final competition = (m.containsKey('division') || info.division.isEmpty)
+        ? info.competition
+        : [info.competition, 'Division ${info.division}']
+            .where((s) => s.isNotEmpty)
+            .join(' - ');
+    field(competition, 'competition');
 
     // MOST VALUABLE PLAYERS: one row for Team A, one for Team B.
     for (final (team, key) in [(data.teamA, 'mvpA'), (data.teamB, 'mvpB')]) {
@@ -553,7 +579,44 @@ class _Painter {
       }
     }
 
+    // Roles printed on the sheet: each official goes on their role's row.
+    void byRole(Team team, List<double> nameX) {
+      final free = List<bool>.filled(o.rows.length, true);
+      final unplaced = <Official>[];
+      for (final off in data.officials[team] ?? const <Official>[]) {
+        final role = off.role.toUpperCase().replaceAll(' ', '');
+        final candidates = role == 'AC' ? ['AC1', 'AC2'] : [role];
+        final row = candidates
+            .map((r) => o.roleRows[r])
+            .firstWhere((r) => r != null && r < free.length && free[r],
+                orElse: () => null);
+        if (row == null) {
+          unplaced.add(off);
+          continue;
+        }
+        free[row] = false;
+        final y = o.rows[row];
+        _textInBox(off.name, [nameX[0], y[0], nameX[1], y[1]], size,
+            align: _Align.left, pad: 2.0);
+      }
+      // Anyone whose role has no row of its own: first free row, with the
+      // role written in front of the name.
+      for (final off in unplaced) {
+        final row = free.indexOf(true);
+        if (row < 0) break;
+        free[row] = false;
+        final y = o.rows[row];
+        _textInBox('${off.role} ${off.name}', [nameX[0], y[0], nameX[1], y[1]],
+            size, align: _Align.left, pad: 2.0);
+      }
+    }
+
     // Left-hand table belongs to Team A, right-hand to Team B.
+    if (o.roleRows.isNotEmpty) {
+      byRole(data.teamA, o.leftNameX);
+      byRole(data.teamB, o.rightNameX);
+      return;
+    }
     side(data.teamA, o.leftRoleX, o.leftNameX);
     side(data.teamB, o.rightRoleX, o.rightNameX);
   }
@@ -693,7 +756,7 @@ class _Painter {
       for (final sd in data.sets) {
         final i = sd.number - 1;
         final minutes = sd.durationMinutes;
-        if (i > 2 || minutes == null) continue;
+        if (i >= r.setRows.length || minutes == null) continue;
         final row = r.setRows[i];
         _textInBox('$minutes', [dx[0], row[0], dx[1], row[1]], 7.0);
       }
@@ -702,8 +765,14 @@ class _Painter {
     final tx = r.totalSetDurationX;
     final total = data.totalSetMinutes;
     if (tx != null && total != null) {
-      _textInBox('$total', [tx[0], r.totalRow[0], tx[1], r.totalRow[1]], 6.5,
-          isBold: true);
+      final base = r.totalSetDurationBaselineY;
+      if (base != null) {
+        _text('$total', (tx[0] + tx[1]) / 2, base, 7.0,
+            isBold: true, align: _Align.center);
+      } else {
+        _textInBox('$total', [tx[0], r.totalRow[0], tx[1], r.totalRow[1]], 6.5,
+            isBold: true);
+      }
     }
 
     // START time and END time at the top of each set.
@@ -722,8 +791,23 @@ class _Painter {
       if (colonX != null) _clock(t, colonX, y, size);
     }
 
-    clock(data.matchStart, r.startColonX);
-    clock(data.matchEnd, r.endColonX);
+    // "16 h 02 mn": numbers in front of the printed h and mn.
+    void hoursMinutes(DateTime? t, double? hx, double? mx) {
+      if (t == null || hx == null || mx == null) return;
+      _text('${t.hour}', hx, y, size, align: _Align.right);
+      _text(_two(t.minute), mx, y, size, align: _Align.right);
+    }
+
+    if (r.startHoursRightX != null) {
+      hoursMinutes(data.matchStart, r.startHoursRightX, r.startMinutesRightX);
+    } else {
+      clock(data.matchStart, r.startColonX);
+    }
+    if (r.endHoursRightX != null) {
+      hoursMinutes(data.matchEnd, r.endHoursRightX, r.endMinutesRightX);
+    } else {
+      clock(data.matchEnd, r.endColonX);
+    }
 
     final minutes = data.matchDurationMinutes;
     final hx = r.durationHoursRightX, mx = r.durationMinutesRightX;
@@ -749,7 +833,7 @@ class _Painter {
 
     for (final sd in data.sets) {
       final i = sd.number - 1;
-      if (i > 2) continue;
+      if (i >= r.setRows.length) continue;
       final row = r.setRows[i];
       for (final team in Team.values) {
         final vals = <String, int?>{

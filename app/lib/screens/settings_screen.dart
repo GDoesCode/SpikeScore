@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../match_engine.dart';
 import '../match_rules.dart';
+import '../scoresheet/scoresheet_format.dart';
 
 /// The format and rules of the match: number of sets, points per set, the
 /// deciding set, time-outs and substitutions. They can only be changed before
@@ -67,6 +68,39 @@ class SettingsScreen extends StatelessWidget {
                     ],
                     selected: {engine.matchMode},
                     onSelectionChanged: locked ? null : (s) => engine.setMatchMode(s.first),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          const _SectionTitle('Scoresheet'),
+          Card(
+            color: const Color(0xFF1E1E1E),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Scoresheet layout', style: TextStyle(color: Colors.white, fontSize: 16)),
+                  const SizedBox(height: 4),
+                  Text(
+                    engine.scoresheetFormat.description +
+                        (engine.scoresheetFormat.fits(engine.maxSets)
+                            ? ''
+                            : ' It does not fit this ${engine.maxSets}-set match.'),
+                    style: const TextStyle(color: Colors.white54, fontSize: 12),
+                  ),
+                  const SizedBox(height: 10),
+                  // Only changes the printout, so it stays open during a match.
+                  SegmentedButton<ScoresheetFormat>(
+                    key: const Key('scoresheet-format'),
+                    segments: [
+                      for (final f in ScoresheetFormat.values)
+                        ButtonSegment(value: f, label: Text(f.label)),
+                    ],
+                    selected: {engine.scoresheetFormat},
+                    onSelectionChanged: (s) => engine.setScoresheetFormat(s.first),
                   ),
                 ],
               ),

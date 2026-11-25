@@ -164,6 +164,10 @@ class ScoresheetData {
   /// Free-text notes from the Notes screen, printed in the REMARKS box.
   final String notes;
 
+  /// The number of the deciding set (3 or 5): the one played to the
+  /// tie-break target, with a change of ends half way.
+  final int decidingSet;
+
   /// Each team's most valuable player (jersey number), if chosen.
   final Map<Team, int> mvp;
 
@@ -205,16 +209,17 @@ class ScoresheetData {
     required this.notes,
     this.mvp = const {},
     this.overrides = const [],
+    this.decidingSet = 3,
   });
 
   /// The BVA sheet in the app is the 3-set one, so only the 3-set format fits.
+  /// (The FIVB layout takes both; see ScoresheetFormat.)
   static bool isSupported(MatchEngine engine) =>
       engine.matchMode == MatchMode.localLeague3Set;
 
-  static const int _decidingSet = 3;
-
-  static bool _isComplete(int setNumber, int home, int away, MatchRules rules) {
-    final deciding = setNumber == _decidingSet;
+  static bool _isComplete(int setNumber, int decidingSet, int home, int away,
+      MatchRules rules) {
+    final deciding = setNumber == decidingSet;
     final target = deciding ? rules.decidingSetPoints : rules.pointsPerSet;
     final lead = rules.winByTwo ? 2 : 1;
     return (home >= target || away >= target) && (home - away).abs() >= lead;
@@ -222,6 +227,7 @@ class ScoresheetData {
 
   factory ScoresheetData.fromEngine(MatchEngine engine) {
     final rules = engine.rules;
+    final decidingSet = engine.maxSets;
     final teams = {
       Team.home: SheetTeam.fromSheet(engine.homeTeamSheet),
       Team.away: SheetTeam.fromSheet(engine.awayTeamSheet),
@@ -255,7 +261,7 @@ class ScoresheetData {
             final away = score[Team.away]!;
             cur.score[Team.home] = home;
             cur.score[Team.away] = away;
-            if (setNo == _decidingSet &&
+            if (setNo == decidingSet &&
                 cur.change == null &&
                 (home >= rules.changeEndsAt || away >= rules.changeEndsAt)) {
               cur.change = SheetChange(
@@ -264,7 +270,7 @@ class ScoresheetData {
                 {for (final t in Team.values) t: List<int>.of(slots[t]!)},
               );
             }
-            if (_isComplete(setNo, home, away, rules)) {
+            if (_isComplete(setNo, decidingSet, home, away, rules)) {
               cur.complete = true;
               cur.winner = home > away ? Team.home : Team.away;
             }
@@ -312,7 +318,7 @@ class ScoresheetData {
             final away = score[Team.away]!;
             cur.score[Team.home] = home;
             cur.score[Team.away] = away;
-            final done = _isComplete(setNo, home, away, rules);
+            final done = _isComplete(setNo, decidingSet, home, away, rules);
             cur.complete = done;
             cur.winner = done ? (home > away ? Team.home : Team.away) : null;
             cur.end = done ? (cur.end ?? e.at) : null;
@@ -373,7 +379,7 @@ class ScoresheetData {
     for (final s in sets.values) {
       if (s.complete) setsWon[s.winner!] = setsWon[s.winner!]! + 1;
     }
-    const needed = 2;
+    final needed = engine.requiredSetsToWin;
     final matchComplete = setsWon.values.any((v) => v >= needed);
     Team? winner;
     if (matchComplete) {
@@ -395,6 +401,7 @@ class ScoresheetData {
       officials: engine.officials,
       notes: engine.notes,
       overrides: engine.overrides,
+      decidingSet: decidingSet,
       mvp: {
         for (final t in Team.values)
           if (engine.mvpOf(t) != null) t: engine.mvpOf(t)!,

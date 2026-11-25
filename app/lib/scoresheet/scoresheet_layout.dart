@@ -181,6 +181,14 @@ class ResultsLayout {
   /// Right edges for the numbers in front of the printed "h" and "mn".
   final double? durationHoursRightX, durationMinutesRightX;
 
+  /// Sheets that write the match start and end as "16 h 02 mn" instead of
+  /// either side of a colon: right edges of the hours and the minutes.
+  final double? startHoursRightX, startMinutesRightX;
+  final double? endHoursRightX, endMinutesRightX;
+
+  /// Baseline of the total set duration, if it isn't centred on its row.
+  final double? totalSetDurationBaselineY;
+
   ResultsLayout({
     required this.teamANameBox,
     required this.teamBNameBox,
@@ -198,6 +206,11 @@ class ResultsLayout {
     this.endColonX,
     this.durationHoursRightX,
     this.durationMinutesRightX,
+    this.startHoursRightX,
+    this.startMinutesRightX,
+    this.endHoursRightX,
+    this.endMinutesRightX,
+    this.totalSetDurationBaselineY,
   });
 
   factory ResultsLayout.fromJson(Map<String, dynamic> j) {
@@ -222,6 +235,12 @@ class ResultsLayout {
       endColonX: (j['endColonX'] as num?)?.toDouble(),
       durationHoursRightX: (j['durationHoursRightX'] as num?)?.toDouble(),
       durationMinutesRightX: (j['durationMinutesRightX'] as num?)?.toDouble(),
+      startHoursRightX: (j['startHoursRightX'] as num?)?.toDouble(),
+      startMinutesRightX: (j['startMinutesRightX'] as num?)?.toDouble(),
+      endHoursRightX: (j['endHoursRightX'] as num?)?.toDouble(),
+      endMinutesRightX: (j['endMinutesRightX'] as num?)?.toDouble(),
+      totalSetDurationBaselineY:
+          (j['totalSetDurationBaselineY'] as num?)?.toDouble(),
     );
   }
 }
@@ -230,12 +249,18 @@ class OfficialsLayout {
   final List<List<double>> rows; // 4 rows [y0, y1]
   final List<double> leftRoleX, leftNameX, rightRoleX, rightNameX;
 
+  /// For sheets with the roles printed (C, AC1, AC2, T, M): role -> row.
+  /// Each official then goes on their role's row and only the name is
+  /// written. Empty when the sheet has blank role boxes.
+  final Map<String, int> roleRows;
+
   OfficialsLayout({
     required this.rows,
     required this.leftRoleX,
     required this.leftNameX,
     required this.rightRoleX,
     required this.rightNameX,
+    this.roleRows = const {},
   });
 
   factory OfficialsLayout.fromJson(Map<String, dynamic> j) {
@@ -247,6 +272,8 @@ class OfficialsLayout {
       leftNameX: _nums(l['nameX']),
       rightRoleX: _nums(r['roleX']),
       rightNameX: _nums(r['nameX']),
+      roleRows: ((j['roleRows'] as Map<String, dynamic>?) ?? {})
+          .map((k, v) => MapEntry(k, (v as num).toInt())),
     );
   }
 }
@@ -310,6 +337,9 @@ class SheetLayout {
   /// set's blocks. Empty if the layout file doesn't have them.
   final Map<int, SetTimesLayout> setTimes;
 
+  /// Space between a printed colon and the numbers either side of it.
+  final double colonGap;
+
   SheetLayout({
     required this.pageWidth,
     required this.pageHeight,
@@ -322,6 +352,7 @@ class SheetLayout {
     required this.officials,
     required this.remarksRows,
     this.setTimes = const {},
+    this.colonGap = 1.4,
   });
 
   BlockLayout block(String name) => blocks[name]!;
@@ -350,6 +381,7 @@ class SheetLayout {
         (k, v) => MapEntry(
             int.parse(k), SetTimesLayout.fromJson(v as Map<String, dynamic>)),
       ),
+      colonGap: (j['colonGap'] as num?)?.toDouble() ?? 1.4,
     );
   }
 }
