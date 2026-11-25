@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 // Adjust these paths if your test folder isn't next to lib/.
 import 'package:spikescore/match_engine.dart';
+import 'package:spikescore/scoresheet/scoresheet_format.dart';
 import 'package:spikescore/match_rules.dart';
 import 'package:spikescore/models.dart';
 
@@ -353,7 +354,7 @@ void main() {
 
     test('format is locked once the match has started', () async {
       final e = await newEngine();
-      await e.setMatchMode(MatchMode.nationalLeague5Set);
+      await e.setScoresheetFormat(ScoresheetFormat.fivb);
       expect(e.matchMode, MatchMode.nationalLeague5Set);
 
       await e.chooseFirstServe(Team.home);
@@ -916,7 +917,7 @@ void main() {
     test('are kept after a restart, with the format', () async {
       const custom = MatchRules(pointsPerSet: 21, decidingSetPoints: 11, subsPerSet: 4);
       final a = await newEngine();
-      await a.setMatchMode(MatchMode.nationalLeague5Set);
+      await a.setScoresheetFormat(ScoresheetFormat.fivb);
       await a.setRules(custom);
 
       final b = await newEngine();

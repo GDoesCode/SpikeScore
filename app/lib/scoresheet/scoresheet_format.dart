@@ -28,11 +28,22 @@ enum ScoresheetFormat {
         ScoresheetFormat.fivb => 'fivb_5set',
       };
 
-  /// True if this sheet has room for a match of [maxSets] sets.
-  bool fits(int maxSets) => switch (this) {
-        ScoresheetFormat.bva => maxSets == 3,
-        ScoresheetFormat.fivb => maxSets == 5,
+  /// The match lengths (most sets) the paper sheet has room for. When there
+  /// is only one, the sheet decides the number of sets.
+  List<int> get setCounts => switch (this) {
+        ScoresheetFormat.bva => const [3],
+        ScoresheetFormat.fivb => const [5],
       };
+
+  /// True if this sheet has room for a match of [maxSets] sets.
+  bool fits(int maxSets) => setCounts.contains(maxSets);
+
+  /// True if the sheet leaves the number of sets to the scorer.
+  bool get setsAreChoosable => setCounts.length > 1;
+
+  /// The first sheet with room for [maxSets] sets (BVA if none has).
+  static ScoresheetFormat firstFitting(int maxSets) => ScoresheetFormat.values
+      .firstWhere((f) => f.fits(maxSets), orElse: () => ScoresheetFormat.bva);
 
   static ScoresheetFormat fromName(Object? name) => ScoresheetFormat.values
       .firstWhere((f) => f.name == name, orElse: () => ScoresheetFormat.bva);

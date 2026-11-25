@@ -44,63 +44,83 @@ class SettingsScreen extends StatelessWidget {
               ),
             ),
 
-          const _SectionTitle('Format'),
+          // The paper sheet decides how many sets fit on it, so the two
+          // settings sit together: sheet first, then the number of sets it
+          // allows.
+          const _SectionTitle('Scoresheet and format'),
           Card(
+            key: const Key('sheet-and-format'),
             color: const Color(0xFF1E1E1E),
             child: Padding(
               padding: const EdgeInsets.all(12),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Number of sets', style: TextStyle(color: Colors.white, fontSize: 16)),
+                  const Text('Scoresheet', style: TextStyle(color: Colors.white, fontSize: 16)),
                   const SizedBox(height: 4),
                   Text(
-                    engine.matchMode == MatchMode.localLeague3Set
-                        ? 'Best of 3: the first team to win 2 sets.'
-                        : 'Best of 5: the first team to win 3 sets.',
+                    engine.scoresheetFormat.description,
                     style: const TextStyle(color: Colors.white54, fontSize: 12),
                   ),
                   const SizedBox(height: 10),
-                  SegmentedButton<MatchMode>(
-                    segments: const [
-                      ButtonSegment(value: MatchMode.localLeague3Set, label: Text('3 sets')),
-                      ButtonSegment(value: MatchMode.nationalLeague5Set, label: Text('5 sets')),
-                    ],
-                    selected: {engine.matchMode},
-                    onSelectionChanged: locked ? null : (s) => engine.setMatchMode(s.first),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          const _SectionTitle('Scoresheet'),
-          Card(
-            color: const Color(0xFF1E1E1E),
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Scoresheet layout', style: TextStyle(color: Colors.white, fontSize: 16)),
-                  const SizedBox(height: 4),
-                  Text(
-                    engine.scoresheetFormat.description +
-                        (engine.scoresheetFormat.fits(engine.maxSets)
-                            ? ''
-                            : ' It does not fit this ${engine.maxSets}-set match.'),
-                    style: const TextStyle(color: Colors.white54, fontSize: 12),
-                  ),
-                  const SizedBox(height: 10),
-                  // Only changes the printout, so it stays open during a match.
                   SegmentedButton<ScoresheetFormat>(
                     key: const Key('scoresheet-format'),
                     segments: [
                       for (final f in ScoresheetFormat.values)
-                        ButtonSegment(value: f, label: Text(f.label)),
+                        ButtonSegment(
+                          value: f,
+                          label: Text(f.label),
+                          enabled: engine.canUseScoresheet(f),
+                        ),
                     ],
                     selected: {engine.scoresheetFormat},
                     onSelectionChanged: (s) => engine.setScoresheetFormat(s.first),
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                    child: Divider(height: 1, color: Colors.white12),
+                  ),
+                  Row(
+                    children: [
+                      const Icon(Icons.subdirectory_arrow_right, color: Colors.white38, size: 18),
+                      const SizedBox(width: 6),
+                      const Text('Number of sets', style: TextStyle(color: Colors.white, fontSize: 16)),
+                      if (!engine.scoresheetFormat.setsAreChoosable) ...[
+                        const SizedBox(width: 8),
+                        const Icon(Icons.lock, color: Colors.white38, size: 16),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    (engine.maxSets == 3
+                            ? 'Best of 3: the first team to win 2 sets.'
+                            : 'Best of 5: the first team to win 3 sets.') +
+                        (engine.scoresheetFormat.setsAreChoosable
+                            ? ''
+                            : ' Set by the ${engine.scoresheetFormat.label} '
+                                'scoresheet, which only has room for '
+                                '${engine.maxSets} sets.'),
+                    style: const TextStyle(color: Colors.white54, fontSize: 12),
+                  ),
+                  const SizedBox(height: 10),
+                  SegmentedButton<MatchMode>(
+                    key: const Key('number-of-sets'),
+                    segments: [
+                      for (final (mode, sets) in [
+                        (MatchMode.localLeague3Set, 3),
+                        (MatchMode.nationalLeague5Set, 5),
+                      ])
+                        ButtonSegment(
+                          value: mode,
+                          label: Text('$sets sets'),
+                          enabled: engine.scoresheetFormat.fits(sets),
+                        ),
+                    ],
+                    selected: {engine.matchMode},
+                    onSelectionChanged: locked || !engine.scoresheetFormat.setsAreChoosable
+                        ? null
+                        : (s) => engine.setMatchMode(s.first),
                   ),
                 ],
               ),
@@ -167,7 +187,7 @@ class SettingsScreen extends StatelessWidget {
               onPressed: locked
                   ? null
                   : () {
-                      engine.setMatchMode(MatchMode.localLeague3Set);
+                      engine.setScoresheetFormat(ScoresheetFormat.bva);
                       engine.setRules(MatchRules.defaults);
                     },
               icon: const Icon(Icons.restart_alt),

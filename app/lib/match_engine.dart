@@ -778,8 +778,11 @@ class MatchEngine extends ChangeNotifier {
 
   /// Changes the match format. Ignored once the match has started, because it
   /// would change set targets and who has won.
+  /// Also ignored if the chosen scoresheet has no room for that many sets:
+  /// the paper sheet decides (see [setScoresheetFormat]).
   Future<void> setMatchMode(MatchMode mode) async {
     if (matchStarted) return;
+    if (!_sheetFormat.fits(_setsIn(mode))) return;
     _matchMode = mode;
     _s = _replay();
     notifyListeners();
@@ -787,15 +790,35 @@ class MatchEngine extends ChangeNotifier {
     await _save();
   }
 
-  /// Which paper sheet the PDF is drawn on. It only changes the printout, so
-  /// unlike the format and rules it can be changed at any time.
+  /// Which paper sheet the PDF is drawn on.
   ScoresheetFormat get scoresheetFormat => _sheetFormat;
 
+  static int _setsIn(MatchMode mode) =>
+      mode == MatchMode.localLeague3Set ? 3 : 5;
+
+  static MatchMode _modeFor(int sets) =>
+      sets == 3 ? MatchMode.localLeague3Set : MatchMode.nationalLeague5Set;
+
+  /// True if [format] can be chosen now: before the match any sheet can
+  /// (it sets the number of sets to fit), during it only one with room for
+  /// the match being played.
+  bool canUseScoresheet(ScoresheetFormat format) =>
+      !matchStarted || format.fits(_maxSets);
+
+  /// Chooses the paper sheet. Each sheet only has room for certain match
+  /// lengths, so if it can't hold the current number of sets, the number of
+  /// sets changes to fit it. Once the match has started, only a sheet with
+  /// room for it can be chosen.
   Future<void> setScoresheetFormat(ScoresheetFormat format) async {
-    if (format == _sheetFormat) return;
+    if (format == _sheetFormat || !canUseScoresheet(format)) return;
     _sheetFormat = format;
+    if (!format.fits(_maxSets)) {
+      _matchMode = _modeFor(format.setCounts.first);
+      _s = _replay();
+    }
     notifyListeners();
     await _saveSettings();
+    await _save();
   }
 
   /// The rules in force: points per set, deciding set, time-outs, subs.
@@ -825,6 +848,12 @@ class MatchEngine extends ChangeNotifier {
       final rules = data['rules'];
       if (rules is Map<String, dynamic>) _rules = MatchRules.fromJson(rules);
       _sheetFormat = ScoresheetFormat.fromName(data['sheet']);
+      // Settings saved before the sheet decided the number of sets may not
+      // match. Keep the number of sets (a saved match depends on it) and
+      // pick a sheet that has room for it.
+      if (!_sheetFormat.fits(_maxSets)) {
+        _sheetFormat = ScoresheetFormat.firstFitting(_maxSets);
+      }
     } catch (e) {
       debugPrint('SpikeScore: could not restore settings: $e');
     }
