@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'demo_data.dart';
 import 'match_rules.dart';
 import 'models.dart';
+import 'scoresheet/scoresheet_format.dart';
 import 'scoresheet/signature_slots.dart';
 
 enum MatchMode { localLeague3Set, nationalLeague5Set }
@@ -255,6 +256,7 @@ class MatchEngine extends ChangeNotifier {
 
   SharedPreferences? _prefs;
   MatchMode _matchMode = MatchMode.localLeague3Set;
+  ScoresheetFormat _sheetFormat = ScoresheetFormat.bva;
   MatchRules _rules = const MatchRules();
   final List<MatchEvent> _events = [];
   late _Derived _s;
@@ -785,6 +787,17 @@ class MatchEngine extends ChangeNotifier {
     await _save();
   }
 
+  /// Which paper sheet the PDF is drawn on. It only changes the printout, so
+  /// unlike the format and rules it can be changed at any time.
+  ScoresheetFormat get scoresheetFormat => _sheetFormat;
+
+  Future<void> setScoresheetFormat(ScoresheetFormat format) async {
+    if (format == _sheetFormat) return;
+    _sheetFormat = format;
+    notifyListeners();
+    await _saveSettings();
+  }
+
   /// The rules in force: points per set, deciding set, time-outs, subs.
   MatchRules get rules => _rules;
 
@@ -811,6 +824,7 @@ class MatchEngine extends ChangeNotifier {
       if (mode is String) _matchMode = MatchMode.values.byName(mode);
       final rules = data['rules'];
       if (rules is Map<String, dynamic>) _rules = MatchRules.fromJson(rules);
+      _sheetFormat = ScoresheetFormat.fromName(data['sheet']);
     } catch (e) {
       debugPrint('SpikeScore: could not restore settings: $e');
     }
@@ -820,7 +834,11 @@ class MatchEngine extends ChangeNotifier {
     final prefs = _prefs ??= await SharedPreferences.getInstance();
     await prefs.setString(
       _settingsKey,
-      jsonEncode({'mode': _matchMode.name, 'rules': _rules.toJson()}),
+      jsonEncode({
+        'mode': _matchMode.name,
+        'rules': _rules.toJson(),
+        'sheet': _sheetFormat.name,
+      }),
     );
   }
 

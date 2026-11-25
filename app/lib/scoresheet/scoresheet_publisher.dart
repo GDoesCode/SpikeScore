@@ -5,10 +5,12 @@ import 'package:flutter/services.dart';
 
 import '../match_engine.dart';
 import 'scoresheet_data.dart';
+import 'scoresheet_format.dart';
 import 'scoresheet_pdf.dart';
 import 'scoresheet_preview_screen.dart';
 
-/// Turns the current match into a filled-in BVA scoresheet PDF and opens a
+/// Turns the current match into a filled-in scoresheet PDF (on the sheet
+/// chosen in Settings: BVA or FIVB) and opens a
 /// preview of it, whose Share button hands it to the phone's share sheet
 /// (save to Files, email, print, ...).
 class ScoresheetPublisher {
@@ -21,6 +23,9 @@ class ScoresheetPublisher {
   /// haven't been played, and anything the app doesn't record, stay blank.
   static Future<Uint8List> buildPdf(MatchEngine engine) async {
     final data = ScoresheetData.fromEngine(engine);
+    if (engine.scoresheetFormat == ScoresheetFormat.fivb) {
+      return ScoresheetPdf.buildFivb(data);
+    }
     final background =
         (await rootBundle.load(_backgroundAsset)).buffer.asUint8List();
     final layoutJson = await rootBundle.loadString(_layoutAsset);
@@ -36,9 +41,14 @@ class ScoresheetPublisher {
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
 
-    if (!ScoresheetData.isSupported(engine)) {
-      messenger.showSnackBar(const SnackBar(
-        content: Text('The BVA scoresheet is for 3-set matches only.'),
+    final format = engine.scoresheetFormat;
+    if (!format.fits(engine.maxSets)) {
+      messenger.showSnackBar(SnackBar(
+        content: Text(format == ScoresheetFormat.bva
+            ? 'The BVA scoresheet is for 3-set matches only. '
+                'Choose the FIVB scoresheet in Settings for 5 sets.'
+            : 'The ${format.label} scoresheet has no room for '
+                '${engine.maxSets} sets.'),
       ));
       return;
     }

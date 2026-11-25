@@ -5,6 +5,7 @@ import 'package:pdf/pdf.dart';
 import '../match_engine.dart' show MatchEngine, Team;
 import '../models.dart';
 import '../demo_data.dart' show Official;
+import 'fivb_sheet.dart';
 import 'scoresheet_data.dart';
 import 'scoresheet_layout.dart';
 import 'remarks_text.dart';
@@ -34,6 +35,24 @@ class ScoresheetPdf {
     g.drawImage(image, 0, 0, layout.pageWidth, layout.pageHeight);
 
     _Painter(doc, g, layout).draw(data);
+    return doc.save();
+  }
+
+  /// Draws the match on a sheet laid out like the FIVB international
+  /// scoresheet. The form itself is drawn too (see [FivbSheet]), so no
+  /// picture is needed. Its size follows the match: 3 or 5 sets.
+  static Future<Uint8List> buildFivb(ScoresheetData data) async {
+    final form = FivbSheet.build(maxSets: data.decidingSet);
+    final layout = form.layout;
+    final doc = PdfDocument();
+    final page = PdfPage(
+      doc,
+      pageFormat: PdfPageFormat(layout.pageWidth, layout.pageHeight),
+    );
+    final g = page.getGraphics();
+    final painter = _Painter(doc, g, layout);
+    painter.drawForm(form.marks);
+    painter.draw(data);
     return doc.save();
   }
 }
@@ -164,6 +183,43 @@ class _Painter {
     g.setLineWidth(width);
     g.drawLine(x0, _y(y0), x1, _y(y1));
     g.strokePath();
+  }
+
+  // ----------------------------------------------------------- blank form
+  /// Prints the lines and labels of a form drawn by the app, in black, before
+  /// anything is written on it.
+  void drawForm(List<FormMark> marks) {
+    final black = PdfColor(0, 0, 0);
+    g.setStrokeColor(black);
+    g.setFillColor(black);
+    for (final mk in marks) {
+      switch (mk) {
+        case FormRect():
+          if (mk.fill != null) {
+            g.setFillColor(PdfColor(mk.fill!, mk.fill!, mk.fill!));
+            g.drawRect(mk.x0, _y(mk.y1), mk.x1 - mk.x0, mk.y1 - mk.y0);
+            g.fillPath();
+            g.setFillColor(black);
+          }
+          g.setLineWidth(mk.width);
+          g.drawRect(mk.x0, _y(mk.y1), mk.x1 - mk.x0, mk.y1 - mk.y0);
+          g.strokePath();
+        case FormLine():
+          _line(mk.x0, mk.y0, mk.x1, mk.y1, mk.width);
+        case FormCircle():
+          _circle(mk.cx, mk.cy, mk.r, mk.width);
+        case FormText():
+          _text(mk.text, mk.x, mk.baseline, mk.size,
+              isBold: mk.bold,
+              align: switch (mk.align) {
+                FormAlign.left => _Align.left,
+                FormAlign.center => _Align.center,
+                FormAlign.right => _Align.right,
+              });
+      }
+    }
+    g.setStrokeColor(_ink);
+    g.setFillColor(_ink);
   }
 
   // ------------------------------------------------------------ point grids
@@ -412,37 +468,36 @@ class _Painter {
         isBold: true, align: _Align.right);
 
     for (final sd in data.sets) {
-      switch (sd.number) {
-        case 1:
-          {
-            // Team A starts on the left.
-            _drawBlock('S1A', data.teamA, sd, data, _Segment.all);
-            _drawBlock('S1B', data.teamB, sd, data, _Segment.all);
-            break;
-          }
-        case 2:
-          {
-            // The teams swap sides.
-            _drawBlock('S2L', data.teamB, sd, data, _Segment.all);
-            _drawBlock('S2R', data.teamA, sd, data, _Segment.all);
-            break;
-          }
-        case 3:
-          {
-            // New coin toss: whichever team was chosen to start on the left.
-            final left = sd.leftTeam(data.teamA);
-            final right = left.other;
-            if (sd.splitsAtChange(left, data.teamA)) {
-              _drawBlock('S3L', left, sd, data, _Segment.before);
-              _drawBlock('S3C', left, sd, data, _Segment.after);
-            } else {
-              _drawBlock('S3L', left, sd, data, _Segment.all);
-            }
-            _drawBlock('S3R', right, sd, data, _Segment.all);
-            break;
-          }
-        default:
-          break; // the 3-set sheet has no room for more
+      final n = sd.number;
+      // Block names: S<set>L / S<set>R (the BVA sheet calls set 1's blocks
+      // S1A / S1B), plus S<set>C for the left-hand team after the change of
+      // ends in the deciding set.
+      String? key(String side, String alt) {
+        if (layout.blocks.containsKey('S$n$alt')) return 'S$n$alt';
+        if (layout.blocks.containsKey('S$n$side')) return 'S$n$side';
+        return null; // the sheet has no room for this set
+      }
+
+      final leftKey = key('L', 'A'), rightKey = key('R', 'B');
+      if (leftKey == null || rightKey == null) continue;
+
+      if (n == data.decidingSet) {
+        // New coin toss: whichever team was chosen to start on the left.
+        final left = sd.leftTeam(data.teamA);
+        final change = 'S${n}C';
+        if (sd.splitsAtChange(left, data.teamA) &&
+            layout.blocks.containsKey(change)) {
+          _drawBlock(leftKey, left, sd, data, _Segment.before);
+          _drawBlock(change, left, sd, data, _Segment.after);
+        } else {
+          _drawBlock(leftKey, left, sd, data, _Segment.all);
+        }
+        _drawBlock(rightKey, left.other, sd, data, _Segment.all);
+      } else {
+        // Team A starts on the left and the teams swap sides every set.
+        final left = n.isOdd ? data.teamA : data.teamB;
+        _drawBlock(leftKey, left, sd, data, _Segment.all);
+        _drawBlock(rightKey, left.other, sd, data, _Segment.all);
       }
     }
 
@@ -459,14 +514,15 @@ class _Painter {
   /// Referee overrides follow the notes, each starting on a new line with
   /// the referee's signature at the right-hand end of its last line.
   void _drawRemarks(ScoresheetData data) {
-    if (data.notes.trim().isEmpty && data.overrides.isEmpty) return;
+    final notes = _remarksNotes(data);
+    if (notes.trim().isEmpty && data.overrides.isEmpty) return;
     const pad = 1.5;
     const sigWidth = 36.0;
     final rows = layout.remarksRows;
     final widths = [for (final r in rows) r[1] - r[0] - 2 * pad];
 
     final fit = fitRemarksWithOverrides(
-      data.notes,
+      notes,
       [for (final o in data.overrides) o.text],
       widths,
       sigWidth,
@@ -482,6 +538,24 @@ class _Painter {
       final r = rows[row];
       _drawInk(ink, [r[1] - pad - sigWidth + 2, r[2] - 8.4, r[1] - pad, r[2] - 0.4]);
     });
+  }
+
+  /// The notes for the REMARKS box. A sheet without MOST VALUABLE PLAYERS
+  /// boxes (the FIVB layout) gets the MVPs as the first line instead.
+  String _remarksNotes(ScoresheetData data) {
+    if (layout.matchInfo.containsKey('mvpA') || data.mvp.isEmpty) {
+      return data.notes;
+    }
+    final parts = <String>[];
+    for (final (team, letter) in [(data.teamA, 'A'), (data.teamB, 'B')]) {
+      final n = data.mvp[team];
+      if (n == null) continue;
+      final players = data.teams[team]!.roster.where((p) => p.number == n);
+      final name = players.isEmpty ? '' : ' ${players.first.name}';
+      parts.add('MVP team $letter (${data.teams[team]!.name}): #$n$name');
+    }
+    final mvp = parts.join('. ');
+    return data.notes.trim().isEmpty ? mvp : '$mvp\n${data.notes}';
   }
 
   // ------------------------------------------------- match details + officials
@@ -693,7 +767,7 @@ class _Painter {
       for (final sd in data.sets) {
         final i = sd.number - 1;
         final minutes = sd.durationMinutes;
-        if (i > 2 || minutes == null) continue;
+        if (i >= r.setRows.length || minutes == null) continue;
         final row = r.setRows[i];
         _textInBox('$minutes', [dx[0], row[0], dx[1], row[1]], 7.0);
       }
@@ -749,7 +823,7 @@ class _Painter {
 
     for (final sd in data.sets) {
       final i = sd.number - 1;
-      if (i > 2) continue;
+      if (i >= r.setRows.length) continue;
       final row = r.setRows[i];
       for (final team in Team.values) {
         final vals = <String, int?>{
