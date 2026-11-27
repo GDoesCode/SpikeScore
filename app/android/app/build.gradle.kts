@@ -4,6 +4,23 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// SpikeScore Lite is this app built with --dart-define=SPIKESCORE_LITE=true
+// (see app/LITE.md). Flutter hands the dart-defines to Gradle base64-encoded,
+// so read them here and give Lite its own app ID and name. Without the flag
+// the app is built exactly as before.
+val dartDefines: Map<String, String> =
+    (project.findProperty("dart-defines") as String?)
+        ?.split(",")
+        ?.filter { it.isNotEmpty() }
+        ?.map { String(java.util.Base64.getDecoder().decode(it)) }
+        ?.mapNotNull { d ->
+            val i = d.indexOf('=')
+            if (i > 0) d.substring(0, i) to d.substring(i + 1) else null
+        }
+        ?.toMap()
+        ?: emptyMap()
+val isLite = dartDefines["SPIKESCORE_LITE"] == "true"
+
 android {
     namespace = "com.JustG.spikescore"
     compileSdk = flutter.compileSdkVersion
@@ -16,7 +33,8 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.JustG.spikescore"
+        applicationId = if (isLite) "com.JustG.spikescore.lite" else "com.JustG.spikescore"
+        manifestPlaceholders["appLabel"] = if (isLite) "SpikeScore Lite" else "spikescore"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion

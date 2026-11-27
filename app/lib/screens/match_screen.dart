@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
+import '../edition.dart';
+import '../lite/match_summary_screen.dart';
 import '../match_engine.dart';
 import '../models.dart';
 import '../screen_orientation.dart';
@@ -118,11 +120,22 @@ class _MatchScreenState extends State<MatchScreen> {
         _showNewSetConfirmationModal(context);
         break;
       case _MenuAction.publish:
-        ScoresheetPublisher.publish(context, engine);
+        _publish(context, engine);
         break;
       case _MenuAction.reset:
         _showResetConfirmationModal(context);
         break;
+    }
+  }
+
+  /// The full version builds the official scoresheet; Lite shows its plain
+  /// match summary instead.
+  void _publish(BuildContext context, MatchEngine engine) {
+    if (engine.isLite) {
+      Navigator.of(context)
+          .push(MaterialPageRoute(builder: (_) => const MatchSummaryScreen()));
+    } else {
+      ScoresheetPublisher.publish(context, engine);
     }
   }
 
@@ -151,7 +164,7 @@ class _MatchScreenState extends State<MatchScreen> {
       backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
         title: Text(
-          'SpikeScore — Set ${engine.currentSet} (${engine.maxSets}-Set)',
+          '${Edition.appName(engine.isLite)} — Set ${engine.currentSet} (${engine.maxSets}-Set)',
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         backgroundColor: const Color(0xFF1E1E1E),
@@ -169,13 +182,16 @@ class _MatchScreenState extends State<MatchScreen> {
             onSelected: (action) => _onMenu(action, engine),
             itemBuilder: (context) => [
               _menuItem(_MenuAction.notes, Icons.edit_note, 'Notes'),
-              _menuItem(
-                _MenuAction.signOff,
-                Icons.draw,
-                engine.isMatchComplete ? 'Sign the scoresheet' : 'Team sheet signatures',
-              ),
-              _menuItem(_MenuAction.override, Icons.gavel, 'Referee override'),
-              _menuItem(_MenuAction.publish, Icons.picture_as_pdf, 'Publish scoresheet (PDF)'),
+              if (!engine.isLite) ...[
+                _menuItem(
+                  _MenuAction.signOff,
+                  Icons.draw,
+                  engine.isMatchComplete ? 'Sign the scoresheet' : 'Team sheet signatures',
+                ),
+                _menuItem(_MenuAction.override, Icons.gavel, 'Referee override'),
+                _menuItem(_MenuAction.publish, Icons.picture_as_pdf, 'Publish scoresheet (PDF)'),
+              ] else
+                _menuItem(_MenuAction.publish, Icons.bar_chart, 'Match summary'),
               _menuItem(_MenuAction.settings, Icons.tune, 'Match settings'),
               const PopupMenuDivider(),
               _menuItem(
@@ -592,9 +608,11 @@ class _MatchScreenState extends State<MatchScreen> {
               ),
               const SizedBox(height: 4),
               TextButton.icon(
-                onPressed: () => ScoresheetPublisher.publish(modalContext, engine),
-                icon: const Icon(Icons.picture_as_pdf, size: 18),
-                label: Text(matchDone ? 'Publish final scoresheet (PDF)' : 'Publish scoresheet so far (PDF)'),
+                onPressed: () => _publish(modalContext, engine),
+                icon: Icon(engine.isLite ? Icons.bar_chart : Icons.picture_as_pdf, size: 18),
+                label: Text(engine.isLite
+                    ? 'Match summary'
+                    : (matchDone ? 'Publish final scoresheet (PDF)' : 'Publish scoresheet so far (PDF)')),
                 style: TextButton.styleFrom(foregroundColor: Colors.lightBlueAccent),
               ),
               const SizedBox(height: 12),
@@ -1057,7 +1075,9 @@ class _MatchScreenState extends State<MatchScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                'Subbing off #${playerOff.number} (${playerOff.name}). Original starter #${lockedPlayerOn.number} (${lockedPlayerOn.name}) will automatically re-enter.',
+                playerOff.name.isEmpty && lockedPlayerOn.name.isEmpty
+                    ? 'Subbing off #${playerOff.number}. Original starter #${lockedPlayerOn.number} will automatically re-enter.'
+                    : 'Subbing off #${playerOff.number} (${playerOff.name}). Original starter #${lockedPlayerOn.number} (${lockedPlayerOn.name}) will automatically re-enter.',
                 style: const TextStyle(color: Colors.white70, fontSize: 13),
               ),
               const SizedBox(height: 12),

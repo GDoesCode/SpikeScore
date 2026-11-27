@@ -1,10 +1,12 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'demo_data.dart';
+import 'edition.dart';
 import 'match_rules.dart';
 import 'models.dart';
 import 'scoresheet/scoresheet_format.dart';
@@ -307,6 +309,10 @@ class MatchEngine extends ChangeNotifier {
   /// Where event times come from. Tests replace it with a fake clock.
   final DateTime Function() _clock;
 
+  /// True in SpikeScore Lite (see [Edition]): teams are Home and Away with
+  /// shirt numbers only, nothing is signed and nothing locks.
+  final bool isLite;
+
   /// Pass [prefs] to load synchronously (tests, or if you await
   /// SharedPreferences.getInstance() in main). Without it the engine loads
   /// in the background and is usable immediately. [homeTeam] and [awayTeam]
@@ -317,9 +323,15 @@ class MatchEngine extends ChangeNotifier {
     TeamSheet? homeTeam,
     TeamSheet? awayTeam,
     DateTime Function()? clock,
-  }) : _clock = clock ?? DateTime.now {
+    bool? lite,
+  })  : _clock = clock ?? DateTime.now,
+        isLite = lite ?? Edition.lite {
     _prefs = prefs;
-    _initDefaultTeams();
+    if (isLite) {
+      _initLiteTeams();
+    } else {
+      _initDefaultTeams();
+    }
     if (homeTeam != null) homeTeamSheet = homeTeam;
     if (awayTeam != null) awayTeamSheet = awayTeam;
     _s = _replay();
@@ -370,6 +382,17 @@ class MatchEngine extends ChangeNotifier {
     );
   }
 
+  /// Lite: no names, just shirt numbers 1 to 14, and 1 to 6 start.
+  void _initLiteTeams() {
+    TeamSheet team(String name) => TeamSheet(
+          teamName: name,
+          roster: [for (var n = 1; n <= 14; n++) Player(number: n, name: '')],
+          startingLineup: const [1, 2, 3, 4, 5, 6],
+        );
+    homeTeamSheet = team('Home');
+    awayTeamSheet = team('Away');
+  }
+
   TeamSheet sheetOf(Team team) =>
       team == Team.home ? homeTeamSheet : awayTeamSheet;
 
@@ -391,7 +414,8 @@ class MatchEngine extends ChangeNotifier {
       _s = _replay();
     }
     // The teams must be in place before the saved match is replayed on them.
-    await _loadDemoData();
+    // Lite has no team data, so it never reads the demo file.
+    if (!isLite) await _loadDemoData();
     // If the scorer already tapped before loading finished, keep what they
     // did rather than overwriting it with older saved data.
     if (_events.isEmpty) {
@@ -1067,6 +1091,83 @@ class MatchEngine extends ChangeNotifier {
     await _save();
   }
 
+  /// Replaces the current match with a finished example match, so someone
+  /// trying the app can see a whole game (and its summary) straight away.
+  /// The same match every time: rallies, a few time-outs and a substitution
+  /// for each team, starting about an hour and a quarter ago. Keeps the
+  /// settings.
+  Future<void> loadPracticeMatch({int seed = 13}) async {
+    final random = Random(seed);
+    final end = _clock();
+    var at = end.subtract(const Duration(minutes: 75));
+    final events = <MatchEvent>[];
+
+    void add(MatchEvent e, {int seconds = 0}) {
+      at = at.add(Duration(seconds: seconds));
+      events.add(e.stamped(at));
+      _events
+        ..clear()
+        ..addAll(events);
+      _s = _replay();
+    }
+
+    _signatures.clear();
+    _notes = '';
+    _preMatchWaived = false;
+    _mvp.clear();
+    _overrides.clear();
+    _events.clear();
+    _s = _replay();
+
+    add(const MatchEvent(EventType.sides, team: Team.home));
+    add(const MatchEvent(EventType.firstServe, team: Team.home), seconds: 30);
+    var subsDone = false;
+    // Plenty for any rules the settings allow; the loop stops at match end.
+    for (var guard = 0; guard < 2000 && !isMatchComplete; guard++) {
+      if (isSetComplete) {
+        add(const MatchEvent(EventType.newSet), seconds: 180);
+        if (needsSides) {
+          add(const MatchEvent(EventType.sides, team: Team.away), seconds: 30);
+        }
+        if (needsFirstServe) {
+          add(const MatchEvent(EventType.firstServe, team: Team.away), seconds: 20);
+        }
+        continue;
+      }
+      // A team three or more behind sometimes calls a time-out.
+      for (final team in Team.values) {
+        final behind = scoreOf(team.other) - scoreOf(team);
+        if (behind >= 3 && canTakeTimeoutIn(team) && random.nextInt(4) == 0) {
+          add(MatchEvent(EventType.timeout, team: team), seconds: 30);
+        }
+      }
+      // One change each in the middle of set 2.
+      if (!subsDone && currentSet == 2 && homeScore + awayScore >= 18) {
+        for (final team in Team.values) {
+          if (!canTakeSub(team)) continue;
+          final off = _ts(team).onCourt[2];
+          final bench = getEligibleBenchPlayers(team, off);
+          if (bench.isEmpty) continue;
+          add(MatchEvent(EventType.sub,
+                  team: team, playerOff: off, playerOn: bench.first.number),
+              seconds: 20);
+        }
+        subsDone = true;
+      }
+      // The home team is a little stronger, and the server wins a bit less
+      // often than the receiver, as in real play.
+      final server = servingTeam ?? Team.home;
+      final homeChance = 0.53 + (server == Team.home ? -0.06 : 0.06);
+      final winner = random.nextDouble() < homeChance ? Team.home : Team.away;
+      add(MatchEvent(EventType.point, team: winner), seconds: 22 + random.nextInt(25));
+    }
+
+    notifyListeners();
+    await _save();
+  }
+
+  bool canTakeTimeoutIn(Team team) => timeOutsOf(team) < _rules.timeOutsPerSet;
+
   // ---------------------------------------------------------------------------
   // Signing in two stages, and what it locks
   // ---------------------------------------------------------------------------
@@ -1119,6 +1220,7 @@ class MatchEngine extends ChangeNotifier {
   /// two captains have signed to confirm the team sheets, or a
   /// referee lets the match go ahead without them.
   bool get awaitingPreMatchSignatures =>
+      !isLite &&
       _s.currentSet == 1 &&
       !needsSides &&
       !needsFirstServe &&
@@ -1130,6 +1232,7 @@ class MatchEngine extends ChangeNotifier {
   /// Scoring, time-outs, subs and undo are then locked until a referee
   /// override unlocks the sheet (which wipes those signatures).
   bool get isSignedOff =>
+      !isLite &&
       isMatchComplete && postMatchSlots.any(_signatures.containsKey);
 
   /// Pre-match signatures can't be redone or removed once play has started;

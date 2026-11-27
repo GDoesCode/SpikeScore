@@ -44,6 +44,45 @@ class SettingsScreen extends StatelessWidget {
               ),
             ),
 
+          // Lite has no scoresheet, so it just asks for the number of sets
+          // (the BVA format is 3 sets, the FIVB one 5).
+          if (engine.isLite) ...[
+            const _SectionTitle('Format'),
+            Card(
+              key: const Key('lite-format'),
+              color: const Color(0xFF1E1E1E),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Number of sets', style: TextStyle(color: Colors.white, fontSize: 16)),
+                    const SizedBox(height: 4),
+                    Text(
+                      engine.maxSets == 3
+                          ? 'Best of 3: the first team to win 2 sets.'
+                          : 'Best of 5: the first team to win 3 sets.',
+                      style: const TextStyle(color: Colors.white54, fontSize: 12),
+                    ),
+                    const SizedBox(height: 10),
+                    SegmentedButton<ScoresheetFormat>(
+                      key: const Key('lite-number-of-sets'),
+                      segments: [
+                        for (final (f, sets) in [
+                          (ScoresheetFormat.bva, 3),
+                          (ScoresheetFormat.fivb, 5),
+                        ])
+                          ButtonSegment(value: f, label: Text('$sets sets')),
+                      ],
+                      selected: {engine.scoresheetFormat},
+                      onSelectionChanged:
+                          locked ? null : (s) => engine.setScoresheetFormat(s.first),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ] else ...[
           // The paper sheet decides how many sets fit on it, so the two
           // settings sit together: sheet first, then the number of sets it
           // allows.
@@ -126,6 +165,7 @@ class SettingsScreen extends StatelessWidget {
               ),
             ),
           ),
+          ],
 
           const _SectionTitle('Points'),
           _StepperTile(
@@ -191,7 +231,9 @@ class SettingsScreen extends StatelessWidget {
                       engine.setRules(MatchRules.defaults);
                     },
               icon: const Icon(Icons.restart_alt),
-              label: const Text('Reset to the standard BVA rules'),
+              label: Text(engine.isLite
+                  ? 'Reset to the standard rules'
+                  : 'Reset to the standard BVA rules'),
             ),
           ),
           const SizedBox(height: 24),
