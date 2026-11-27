@@ -1,5 +1,6 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:provider/provider.dart';
+import 'edition.dart';
 import 'match_engine.dart';
 import 'screens/home_screen.dart';
 
@@ -18,7 +19,7 @@ class SpikeScoreApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'SpikeScore',
+      title: Edition.appName(Edition.lite),
       theme: ThemeData.dark(useMaterial3: true),
       home: const HomeScreen(),
     );

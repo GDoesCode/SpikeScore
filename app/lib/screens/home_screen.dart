@@ -2,6 +2,10 @@ import 'package:material_ui/material_ui.dart';
 import 'package:provider/provider.dart';
 
 import '../demo_data.dart';
+import '../edition.dart';
+import '../lite/feedback_screen.dart';
+import '../lite/match_summary_screen.dart';
+import '../lite/upgrade_screen.dart';
 import '../match_engine.dart';
 import '../scoresheet/scoresheet_publisher.dart';
 import 'match_screen.dart';
@@ -26,9 +30,12 @@ class HomeScreen extends StatelessWidget {
       builder: (dialogContext) => AlertDialog(
         backgroundColor: const Color(0xFF222222),
         title: const Text('Start a new match?', style: TextStyle(color: Colors.white)),
-        content: const Text(
-          'This wipes the scores, sets, time-outs, substitutions, notes and '
-          'signatures of the current match. The teams and settings stay.',
+        content: Text(
+          engine.isLite
+              ? 'This wipes the scores, sets, time-outs, substitutions and notes '
+                  'of the current match. The settings stay.'
+              : 'This wipes the scores, sets, time-outs, substitutions, notes and '
+                  'signatures of the current match. The teams and settings stay.',
           style: TextStyle(color: Colors.white70),
         ),
         actions: [
@@ -44,6 +51,36 @@ class HomeScreen extends StatelessWidget {
       ),
     );
     if (ok == true) await engine.resetMatch();
+  }
+
+  /// Lite: replace the match with the example one and show its summary.
+  Future<void> _loadPracticeMatch(BuildContext context, MatchEngine engine) async {
+    if (engine.matchStarted) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          backgroundColor: const Color(0xFF222222),
+          title: const Text('Load the practice match?', style: TextStyle(color: Colors.white)),
+          content: const Text(
+            'Lite keeps one match at a time, so this replaces the match you are scoring.',
+            style: TextStyle(color: Colors.white70),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Replace it', style: TextStyle(color: Colors.redAccent)),
+            ),
+          ],
+        ),
+      );
+      if (ok != true) return;
+    }
+    await engine.loadPracticeMatch();
+    if (context.mounted) _open(context, const MatchSummaryScreen());
   }
 
   /// Competition, venue and date lines for the header, skipping what is blank.
@@ -83,7 +120,70 @@ class HomeScreen extends StatelessWidget {
     final notes = engine.notes.trim();
     final notesLine = notes.isEmpty ? 'Nothing written yet' : notes.split('\n').first;
 
-    final cards = <Widget>[
+    final matchCard = _MenuCard(
+      icon: Icons.sports_volleyball,
+      title: started ? 'Continue match' : 'Start match',
+      subtitle: status,
+      accent: Colors.greenAccent,
+      onTap: () => _open(context, const MatchScreen()),
+    );
+    final settingsCard = _MenuCard(
+      icon: Icons.tune,
+      title: 'Match settings',
+      subtitle: '${engine.maxSets} sets · ${rules.pointsPerSet} points · '
+          'deciding set ${rules.decidingSetPoints}',
+      onTap: () => _open(context, const SettingsScreen()),
+    );
+    final notesCard = _MenuCard(
+      icon: Icons.edit_note,
+      title: 'Notes',
+      subtitle: notesLine,
+      onTap: () => _open(context, const NotesScreen()),
+    );
+    final newMatchCard = _MenuCard(
+      icon: Icons.refresh,
+      title: 'New match',
+      subtitle: 'Wipe the scores and start again',
+      accent: Colors.redAccent,
+      onTap: () => _confirmNewMatch(context, engine),
+    );
+
+    // Lite: no team sheets, signatures or official scoresheet. A plain
+    // summary instead, an example match, and ways to reach us.
+    final liteCards = <Widget>[
+      matchCard,
+      _MenuCard(
+        icon: Icons.bar_chart,
+        title: 'Match summary',
+        subtitle: 'Set scores, times and how each set went',
+        onTap: () => _open(context, const MatchSummaryScreen()),
+      ),
+      _MenuCard(
+        icon: Icons.play_circle_outline,
+        title: 'Practice match',
+        subtitle: 'Load a finished example match to look around',
+        accent: Colors.amberAccent,
+        onTap: () => _loadPracticeMatch(context, engine),
+      ),
+      settingsCard,
+      notesCard,
+      newMatchCard,
+      _MenuCard(
+        icon: Icons.workspace_premium,
+        title: 'Full version',
+        subtitle: 'Official scoresheets, real teams and signatures',
+        accent: Colors.amberAccent,
+        onTap: () => _open(context, const UpgradeScreen()),
+      ),
+      _MenuCard(
+        icon: Icons.feedback_outlined,
+        title: 'Send feedback',
+        subtitle: 'Report a bug or suggest an idea',
+        onTap: () => _open(context, const FeedbackScreen()),
+      ),
+    ];
+
+    final cards = engine.isLite ? liteCards : <Widget>[
       _MenuCard(
         icon: Icons.sports_volleyball,
         title: started ? 'Continue match' : 'Start match',
@@ -142,7 +242,8 @@ class HomeScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
-        title: const Text('SpikeScore', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(Edition.appName(engine.isLite),
+            style: const TextStyle(fontWeight: FontWeight.bold)),
         backgroundColor: const Color(0xFF1E1E1E),
         elevation: 0,
       ),
