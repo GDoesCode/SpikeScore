@@ -32,5 +32,6 @@ Both keep one match at a time: a new match (or the practice match) replaces it.
 ## Contact address
 
 Feedback and "Contact us" open the email app with a message to
-`Edition.contactEmail` in `lib/edition.dart`. While it is blank, they copy the
-message to the clipboard instead.
+`Edition.contactEmail` in `lib/edition.dart` (spikescore.app@gmail.com). If
+the phone has no email app, or the address is blank, they copy the message to
+the clipboard instead.

@@ -17,5 +17,5 @@ class Edition {
 
   /// Where Lite's "Send feedback" and "Contact us" go. Leave blank and the
   /// app offers to copy the text instead of opening the email app.
-  static const String contactEmail = '';
+  static const String contactEmail = 'spikescore.app@gmail.com';
 }
