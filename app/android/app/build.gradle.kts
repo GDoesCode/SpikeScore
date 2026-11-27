@@ -1,3 +1,5 @@
+import java.util.Base64
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
@@ -8,18 +10,21 @@ plugins {
 // (see app/LITE.md). Flutter hands the dart-defines to Gradle base64-encoded,
 // so read them here and give Lite its own app ID and name. Without the flag
 // the app is built exactly as before.
-val dartDefines: Map<String, String> =
-    (project.findProperty("dart-defines") as String?)
-        ?.split(",")
-        ?.filter { it.isNotEmpty() }
-        ?.map { String(java.util.Base64.getDecoder().decode(it)) }
-        ?.mapNotNull { d ->
-            val i = d.indexOf('=')
-            if (i > 0) d.substring(0, i) to d.substring(i + 1) else null
-        }
-        ?.toMap()
-        ?: emptyMap()
-val isLite = dartDefines["SPIKESCORE_LITE"] == "true"
+// (In a Gradle script `java` means the java extension, so Base64 is imported
+// at the top rather than written as java.util.Base64.)
+fun readDartDefines(raw: String?): Map<String, String> {
+    if (raw.isNullOrEmpty()) return emptyMap()
+    val result = mutableMapOf<String, String>()
+    for (entry in raw.split(",")) {
+        if (entry.isEmpty()) continue
+        val define = String(Base64.getDecoder().decode(entry), Charsets.UTF_8)
+        val i = define.indexOf('=')
+        if (i > 0) result[define.substring(0, i)] = define.substring(i + 1)
+    }
+    return result
+}
+val isLite =
+    readDartDefines(project.findProperty("dart-defines") as String?)["SPIKESCORE_LITE"] == "true"
 
 android {
     namespace = "com.JustG.spikescore"
